@@ -36,7 +36,7 @@
 ## 特性
 
 - **多 DEX 支持**: PumpFun、PumpSwap、Bonk、Raydium AMM V4、Raydium CPMM、Meteora DAMM V2
-- **19 个 SWQoS 提供商**: Jito、Bloxroute、ZeroSlot、NextBlock、Temporal、Node1、FlashBlock、BlockRazor、Astralane、Stellium、Lightspeed、Soyas、Speedlanding、Helius、Triton、QuickNode、Syndica、Figment、Alchemy
+- **SWQoS 集成**: 多个 MEV 提供商用于交易提交
 - **高性能**: LRU/TTL/分片缓存、连接池、并行执行
 - **低延迟**: 针对亚秒级交易执行优化
 - **安全优先**: 整数溢出保护、安全密钥存储、输入验证
@@ -244,30 +244,6 @@ import { TradeExecutorFactory } from 'sol-trade-sdk/trading';
 ### Meteora
 - DAMM V2 交换计算
 - 池 PDA 派生
-
-## SWQoS 提供商（共 19 个）
-
-| 提供商 | 最低小费 | 特性 |
-|----------|---------|----------|
-| Jito | 0.001 SOL | 捆绑支持、gRPC、多区域 |
-| Bloxroute | 0.0003 SOL | 高可靠性、全球分布 |
-| ZeroSlot | 0.0001 SOL | 零槽位着陆 |
-| NextBlock | 0.0001 SOL | 下一区块优先 |
-| Temporal | 0.0001 SOL | 快速确认 |
-| Node1 | 0.0001 SOL | 直接验证者访问 |
-| FlashBlock | 0.0001 SOL | 有竞争力的价格 |
-| BlockRazor | 0.0001 SOL | MEV 保护 |
-| Astralane | 0.0001 SOL | 快速提交 |
-| Stellium | 0.0001 SOL | 全球基础设施 |
-| Lightspeed | 0.0001 SOL | 低延迟 |
-| Soyas | 0.0001 SOL | MEV 保护 |
-| Speedlanding | 0.0001 SOL | 快速着陆 |
-| Helius | 0.000005 SOL | 仅 SWQoS 模式、增强 API |
-| Triton | 可变 | 企业级 RPC |
-| QuickNode | 可变 | 企业级 RPC |
-| Syndica | 可变 | 企业级 RPC |
-| Figment | 可变 | 企业级 RPC |
-| Alchemy | 可变 | 企业级 RPC |
 
 ## 中间件系统
 

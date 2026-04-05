@@ -36,7 +36,7 @@ A comprehensive, high-performance TypeScript SDK for Solana DEX trading with sup
 ## Features
 
 - **Multiple DEX Support**: PumpFun, PumpSwap, Bonk, Raydium AMM V4, Raydium CPMM, Meteora DAMM V2
-- **19 SWQoS Providers**: Jito, Bloxroute, ZeroSlot, NextBlock, Temporal, Node1, FlashBlock, BlockRazor, Astralane, Stellium, Lightspeed, Soyas, Speedlanding, Helius, Triton, QuickNode, Syndica, Figment, Alchemy
+- **SWQoS Integration**: Multiple MEV providers for transaction submission
 - **High Performance**: LRU/TTL/Sharded caching, connection pooling, parallel execution
 - **Low Latency**: Optimized for sub-second trade execution
 - **Security First**: Integer overflow protection, secure key storage, input validation
@@ -244,30 +244,6 @@ import { TradeExecutorFactory } from 'sol-trade-sdk/trading';
 ### Meteora
 - DAMM V2 swap calculations
 - Pool PDA derivation
-
-## SWQoS Providers (19 Total)
-
-| Provider | Min Tip | Features |
-|----------|---------|----------|
-| Jito | 0.001 SOL | Bundle support, gRPC, multi-region |
-| Bloxroute | 0.0003 SOL | High reliability, global distribution |
-| ZeroSlot | 0.0001 SOL | Zero-slot landing |
-| NextBlock | 0.0001 SOL | Next block priority |
-| Temporal | 0.0001 SOL | Fast confirmation |
-| Node1 | 0.0001 SOL | Direct validator access |
-| FlashBlock | 0.0001 SOL | Competitive pricing |
-| BlockRazor | 0.0001 SOL | MEV protection |
-| Astralane | 0.0001 SOL | Fast submission |
-| Stellium | 0.0001 SOL | Global infrastructure |
-| Lightspeed | 0.0001 SOL | Low latency |
-| Soyas | 0.0001 SOL | MEV protection |
-| Speedlanding | 0.0001 SOL | Fast landing |
-| Helius | 0.000005 SOL | SWQoS-only mode, enhanced APIs |
-| Triton | Variable | Enterprise RPC |
-| QuickNode | Variable | Enterprise RPC |
-| Syndica | Variable | Enterprise RPC |
-| Figment | Variable | Enterprise RPC |
-| Alchemy | Variable | Enterprise RPC |
 
 ## Middleware System
 
