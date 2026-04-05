@@ -1,0 +1,93 @@
+{
+  "name": "sol-trade-sdk",
+  "version": "0.1.0",
+  "description": "High-performance Solana trading SDK with multi-protocol support",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./cache": {
+      "import": "./dist/cache/index.mjs",
+      "require": "./dist/cache/index.js",
+      "types": "./dist/cache/index.d.ts"
+    },
+    "./pool": {
+      "import": "./dist/pool/index.mjs",
+      "require": "./dist/pool/index.js",
+      "types": "./dist/pool/index.d.ts"
+    },
+    "./rpc": {
+      "import": "./dist/rpc/index.mjs",
+      "require": "./dist/rpc/index.js",
+      "types": "./dist/rpc/index.d.ts"
+    },
+    "./swqos": {
+      "import": "./dist/swqos/index.mjs",
+      "require": "./dist/swqos/index.js",
+      "types": "./dist/swqos/index.d.ts"
+    },
+    "./trading": {
+      "import": "./dist/trading/index.mjs",
+      "require": "./dist/trading/index.js",
+      "types": "./dist/trading/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts --clean",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint src --ext .ts",
+    "lint:fix": "eslint src --ext .ts --fix",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "solana",
+    "trading",
+    "dex",
+    "blockchain",
+    "defi",
+    "pumpfun",
+    "raydium",
+    "meteora",
+    "swqos"
+  ],
+  "author": "Sol Trade SDK Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sol-trade-sdk/sol-trade-sdk-ts"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^1.91.0",
+    "@solana/spl-token": "^0.4.6",
+    "bn.js": "^5.2.1",
+    "borsh": "^0.7.0",
+    "bs58": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/bn.js": "^5.1.5",
+    "@types/node": "^20.11.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "eslint": "^8.56.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.3.0",
+    "vitest": "^1.2.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "sideEffects": false
+}
