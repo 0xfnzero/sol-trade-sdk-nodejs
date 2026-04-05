@@ -46,6 +46,41 @@ A comprehensive, high-performance TypeScript SDK for Solana DEX trading with sup
 
 ## Installation
 
+### Direct Clone (Recommended)
+
+Clone this project to your project directory:
+
+```bash
+cd your_project_root_directory
+git clone https://github.com/0xfnzero/sol-trade-sdk-nodejs
+```
+
+Install dependencies and build:
+
+```bash
+cd sol-trade-sdk-nodejs
+npm install
+npm run build
+```
+
+Add to your `package.json`:
+
+```json
+{
+  "dependencies": {
+    "sol-trade-sdk": "./sol-trade-sdk-nodejs"
+  }
+}
+```
+
+Then run:
+
+```bash
+npm install
+```
+
+### Use NPM
+
 ```bash
 npm install sol-trade-sdk
 # or
