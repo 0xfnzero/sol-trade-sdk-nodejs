@@ -6,7 +6,7 @@
  */
 
 import {
-  TradeConfig,
+  TradeConfigBuilder,
   SwqosConfig,
   SwqosType,
   SwqosRegion,
@@ -29,10 +29,10 @@ async function createClient(): Promise<TradingClient> {
     { type: SwqosType.JITO, uuid: 'your_uuid' },
   ];
 
-  const tradeConfig = new TradeConfig({
-    rpcUrl,
-    swqosConfigs,
-  });
+  const tradeConfig = TradeConfigBuilder.create(rpcUrl)
+      .swqosConfigs(swqosConfigs)
+      // .mevProtection(true)   // Enable MEV protection (BlockRazor: sandwichMitigation, Astralane: port 9000)
+      .build();
 
   return TradingClient.new(payer, tradeConfig);
 }

@@ -497,7 +497,8 @@ export class BlockRazorClient extends BaseClient {
   constructor(
     private rpcUrl: string,
     private endpoint: string,
-    private authToken?: string
+    private authToken?: string,
+    private mevProtection: boolean = false
   ) {
     super();
   }
@@ -508,7 +509,8 @@ export class BlockRazorClient extends BaseClient {
     const headers: Record<string, string> = {};
     if (this.authToken) headers['X-API-Key'] = this.authToken;
 
-    const result = (await this.post(`https://${this.endpoint}/api/v1/submit`, payload, headers)) as any;
+    const mode = this.mevProtection ? 'sandwichMitigation' : 'fast';
+    const result = (await this.post(`https://${this.endpoint}/api/v1/submit?mode=${mode}`, payload, headers)) as any;
     if (result.error) throw new TradeError(500, result.error);
     return result.signature;
   }
@@ -552,6 +554,7 @@ export interface SwqosClientConfig {
   region?: SwqosRegion;
   customUrl?: string;
   apiKey?: string;
+  mevProtection?: boolean;
 }
 
 export class ClientFactory {
@@ -608,15 +611,20 @@ export class ClientFactory {
         return new BlockRazorClient(
           rpcUrl,
           config.customUrl || 'api.blockrazor.com',
-          config.apiKey
+          config.apiKey,
+          config.mevProtection ?? false
         );
 
-      case SwqosType.Astralane:
+      case SwqosType.Astralane: {
+        const astralaneEndpoint = (config.mevProtection && !config.customUrl)
+          ? 'api-mev.astralane.com:9000'
+          : (config.customUrl || 'api.astralane.com');
         return new AstralaneClient(
           rpcUrl,
-          config.customUrl || 'api.astralane.com',
+          astralaneEndpoint,
           config.apiKey
         );
+      }
 
       case SwqosType.Default:
       default:
@@ -632,13 +640,15 @@ export function createSwqosClient(
   rpcUrl: string,
   authToken?: string,
   region?: SwqosRegion,
-  customUrl?: string
+  customUrl?: string,
+  mevProtection: boolean = false
 ): SwqosClient {
   const config: SwqosClientConfig = {
     type: swqosType,
     region,
     customUrl,
     apiKey: authToken,
+    mevProtection,
   };
   return ClientFactory.createClient(config, rpcUrl);
 }

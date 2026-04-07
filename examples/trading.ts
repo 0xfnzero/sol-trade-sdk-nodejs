@@ -6,7 +6,7 @@ import {
   TradingClient,
   DexType,
   TradeTokenType,
-  createTradeConfig,
+  TradeConfigBuilder,
   createGasFeeStrategy,
   PumpFunParams,
   CONSTANTS,
@@ -31,7 +31,10 @@ async function main() {
 
   // 3. Create trade configuration
   const rpcUrl = 'https://mainnet.helius-rpc.com/?api-key=your_api_key';
-  const config = createTradeConfig(rpcUrl, swqosConfigs);
+  const config = TradeConfigBuilder.create(rpcUrl)
+    .swqosConfigs(swqosConfigs)
+    // .mevProtection(true)   // Enable MEV protection (BlockRazor: sandwichMitigation, Astralane: port 9000)
+    .build();
 
   // 4. Create trading client
   const client = new TradingClient(payer, config);

@@ -9,7 +9,7 @@
  */
 
 import {
-  TradeConfig,
+  TradeConfigBuilder,
   SwqosConfig,
   SwqosType,
   SwqosRegion,
@@ -36,10 +36,10 @@ async function createTradingClientSimple(): Promise<TradingClient> {
     { type: SwqosType.TEMPORAL, apiToken: 'your_api_token', region: SwqosRegion.FRANKFURT },
   ];
 
-  const tradeConfig = new TradeConfig({
-    rpcUrl,
-    swqosConfigs,
-  });
+  const tradeConfig = TradeConfigBuilder.create(rpcUrl)
+    .swqosConfigs(swqosConfigs)
+    // .mevProtection(true)   // Enable MEV protection (BlockRazor: sandwichMitigation, Astralane: port 9000)
+    .build();
 
   // Creates new infrastructure internally
   const client = await TradingClient.new(payer, tradeConfig);

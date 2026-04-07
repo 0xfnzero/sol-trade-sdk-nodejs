@@ -338,6 +338,75 @@ export interface TradeConfig {
   commitment?: Commitment;
   logEnabled?: boolean;
   checkMinTip?: boolean;
+  mevProtection?: boolean;
+}
+
+/**
+ * Builder for TradeConfig - makes all options discoverable via IDE autocomplete.
+ *
+ * @example
+ * const config = TradeConfigBuilder.create(rpcUrl)
+ *   .swqosConfigs([{ type: SwqosType.Jito, apiKey: 'your-key' }])
+ *   // .mevProtection(true)   // Enable MEV protection (BlockRazor: sandwichMitigation, Astralane: port 9000)
+ *   .build();
+ */
+export class TradeConfigBuilder {
+  private _rpcUrl: string;
+  private _swqosConfigs: SwqosConfig[] = [];
+  private _commitment?: Commitment;
+  private _logEnabled: boolean = true;
+  private _checkMinTip: boolean = false;
+  private _mevProtection: boolean = false;
+
+  private constructor(rpcUrl: string) {
+    this._rpcUrl = rpcUrl;
+  }
+
+  static create(rpcUrl: string): TradeConfigBuilder {
+    return new TradeConfigBuilder(rpcUrl);
+  }
+
+  swqosConfigs(configs: SwqosConfig[]): this {
+    this._swqosConfigs = configs;
+    return this;
+  }
+
+  commitment(commitment: Commitment): this {
+    this._commitment = commitment;
+    return this;
+  }
+
+  logEnabled(enabled: boolean): this {
+    this._logEnabled = enabled;
+    return this;
+  }
+
+  checkMinTip(check: boolean): this {
+    this._checkMinTip = check;
+    return this;
+  }
+
+  /**
+   * Enable MEV protection (default: false).
+   * When enabled:
+   * - BlockRazor uses mode=sandwichMitigation
+   * - Astralane uses port 9000 MEV-protected QUIC endpoint
+   */
+  mevProtection(enabled: boolean): this {
+    this._mevProtection = enabled;
+    return this;
+  }
+
+  build(): TradeConfig {
+    return {
+      rpcUrl: this._rpcUrl,
+      swqosConfigs: this._swqosConfigs,
+      commitment: this._commitment,
+      logEnabled: this._logEnabled,
+      checkMinTip: this._checkMinTip,
+      mevProtection: this._mevProtection,
+    };
+  }
 }
 
 /**
