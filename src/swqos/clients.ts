@@ -30,6 +30,8 @@ export const MIN_TIP_HELIUS_NORMAL = 0.0002;   // 普通模式
 export const MIN_TIP_STELLIUM = 0.0001;
 export const MIN_TIP_LIGHTSPEED = 0.0001;
 export const MIN_TIP_NEXT_BLOCK = 0.001;
+export const MIN_TIP_SOYAS = 0.001;
+export const MIN_TIP_SPEEDLANDING = 0.001;
 export const MIN_TIP_DEFAULT = 0.0;
 
 // ===== Tip Accounts =====
@@ -171,6 +173,30 @@ const NEXT_BLOCK_TIP_ACCOUNTS = [
   'nextBLoCkPMgmG8ZgJtABeScP35qLa2AMCNKntAP7Xc',
 ];
 
+const SOYAS_TIP_ACCOUNTS = [
+  'soyas4s6L8KWZ8rsSk1mF3d1mQScoTGGAgjk98bF8nP',
+  'soyascXFW5wEEYiwfEmHy2pNwomqzvggJosGVD6TJdY',
+  'soyasDBdKjADwPz3xk82U3TNPRDKEWJj7wWLajNHZ1L',
+  'soyasE2abjBAynmHbGWgEwk4ctBy7JMTUCNrMbjcnyH',
+  'soyasi59njacMUPvo3TM5paHjeK8pYSdovXgFi32gRt',
+  'soyasQYhJxv8uZgWDxhg72td6piAf7XTkoyWHtSATEz',
+  'soyastP66xyYC8XADXZjdMM5BAVGD2YRvz8dwtLsqb8',
+  'soyasvdgUJWYcUCzDxpmjUnNjH7KamXLXTzLwFvdVPE',
+  'soyasvxAunisNxaoRxkKGjNir7KmbwYnr37JmefkX9G',
+  'soyas5doVFUwH8s5zK8gEvCL5KR5ogDmf52LsrJEZ9h',
+];
+
+const SPEEDLANDING_TIP_ACCOUNTS = [
+  'SpEEdz8S1KorkMZqjMUxfxrmWwofmp6ReNP2Nx6CUmq',
+  'SpeeDy3GJM4wcrQmk1itRFWgidvxX4rwjTLMv78wwjE',
+  'SPeEdva37vW8vRtqgYjprQs1g3965icfVN5Rt7SMAyh',
+  'speEdrSEpox5GUfHWcBc7tQjRuSfUin2yvB7qoYvvJh',
+  'SPeEDmkHkN3A2roSZf6aZyEMsmrGqTHKqwP51y2Y4rV',
+  'SpeedLdTJXh2RKpXEaP8JCxkWoUVXhtdPQ1EnxBJMxc',
+  'SpEediGKLbbXndSYTzwmz6Z3NDgHQLDcTDEvGFkSMH9',
+  'speede8xCcUq2Tiv1efXeTuE3k9TDNq8TnGKaKSc6J4',
+];
+
 // ===== Region Endpoint Maps =====
 
 export const JITO_ENDPOINTS: Record<SwqosRegion, string> = {
@@ -303,6 +329,30 @@ export const NEXT_BLOCK_ENDPOINTS: Record<SwqosRegion, string> = {
   [SwqosRegion.LosAngeles]: 'http://singapore.nextblock.io',
   [SwqosRegion.Singapore]: 'http://singapore.nextblock.io',
   [SwqosRegion.Default]: 'http://frankfurt.nextblock.io',
+};
+
+export const SOYAS_ENDPOINTS: Record<SwqosRegion, string> = {
+  [SwqosRegion.NewYork]: 'nyc.landing.soyas.xyz:9000',
+  [SwqosRegion.Frankfurt]: 'fra.landing.soyas.xyz:9000',
+  [SwqosRegion.Amsterdam]: 'ams.landing.soyas.xyz:9000',
+  [SwqosRegion.SLC]: 'nyc.landing.soyas.xyz:9000',
+  [SwqosRegion.Tokyo]: 'tyo.landing.soyas.xyz:9000',
+  [SwqosRegion.London]: 'lon.landing.soyas.xyz:9000',
+  [SwqosRegion.LosAngeles]: 'nyc.landing.soyas.xyz:9000',
+  [SwqosRegion.Singapore]: 'fra.landing.soyas.xyz:9000',
+  [SwqosRegion.Default]: 'fra.landing.soyas.xyz:9000',
+};
+
+export const SPEEDLANDING_ENDPOINTS: Record<SwqosRegion, string> = {
+  [SwqosRegion.NewYork]: 'nyc.speedlanding.trade:17778',
+  [SwqosRegion.Frankfurt]: 'fra.speedlanding.trade:17778',
+  [SwqosRegion.Amsterdam]: 'ams.speedlanding.trade:17778',
+  [SwqosRegion.SLC]: 'nyc.speedlanding.trade:17778',
+  [SwqosRegion.Tokyo]: 'tyo.speedlanding.trade:17778',
+  [SwqosRegion.London]: 'fra.speedlanding.trade:17778',
+  [SwqosRegion.LosAngeles]: 'nyc.speedlanding.trade:17778',
+  [SwqosRegion.Singapore]: 'fra.speedlanding.trade:17778',
+  [SwqosRegion.Default]: 'fra.speedlanding.trade:17778',
 };
 
 // ===== SWQOS Client Interface =====
@@ -1147,6 +1197,92 @@ export class DefaultClient extends BaseClient {
   }
 }
 
+// ===== Soyas Client =====
+
+/**
+ * Soyas SWQOS client.
+ *
+ * Transport: QUIC with mTLS (Keypair-based certificate).
+ * Endpoint:  host:port (e.g. nyc.landing.soyas.xyz:9000)
+ * Auth:      Solana Keypair (base58) used as mTLS client certificate.
+ * Note:      QUIC is not natively supported in Node.js. Use the Rust SDK for
+ *            full QUIC support. This client holds config for future integration.
+ */
+export class SoyasClient implements SwqosClient {
+  private readonly tipAccount: string;
+
+  constructor(
+    private readonly rpcUrl: string,
+    private readonly endpoint: string,
+    private readonly apiKey?: string,
+  ) {
+    this.tipAccount = randomChoice(SOYAS_TIP_ACCOUNTS);
+  }
+
+  async sendTransaction(
+    _tradeType: TradeType,
+    _transaction: Buffer,
+    _waitConfirmation: boolean,
+  ): Promise<string> {
+    throw new TradeError(501, 'Soyas requires QUIC transport with mTLS; not supported in Node.js SDK. Use the Rust SDK.');
+  }
+
+  async sendTransactions(
+    _tradeType: TradeType,
+    _transactions: Buffer[],
+    _waitConfirmation: boolean,
+  ): Promise<string[]> {
+    throw new TradeError(501, 'Soyas requires QUIC transport with mTLS; not supported in Node.js SDK. Use the Rust SDK.');
+  }
+
+  getTipAccount(): string { return this.tipAccount; }
+  getSwqosType(): SwqosType { return SwqosType.Soyas; }
+  minTipSol(): number { return MIN_TIP_SOYAS; }
+}
+
+// ===== Speedlanding Client =====
+
+/**
+ * Speedlanding SWQOS client.
+ *
+ * Transport: QUIC with mTLS (Keypair-based certificate).
+ * Endpoint:  host:port (e.g. nyc.speedlanding.trade:17778)
+ * Auth:      Solana Keypair (base58) used as mTLS client certificate.
+ * Note:      QUIC is not natively supported in Node.js. Use the Rust SDK for
+ *            full QUIC support. This client holds config for future integration.
+ */
+export class SpeedlandingClient implements SwqosClient {
+  private readonly tipAccount: string;
+
+  constructor(
+    private readonly rpcUrl: string,
+    private readonly endpoint: string,
+    private readonly apiKey?: string,
+  ) {
+    this.tipAccount = randomChoice(SPEEDLANDING_TIP_ACCOUNTS);
+  }
+
+  async sendTransaction(
+    _tradeType: TradeType,
+    _transaction: Buffer,
+    _waitConfirmation: boolean,
+  ): Promise<string> {
+    throw new TradeError(501, 'Speedlanding requires QUIC transport with mTLS; not supported in Node.js SDK. Use the Rust SDK.');
+  }
+
+  async sendTransactions(
+    _tradeType: TradeType,
+    _transactions: Buffer[],
+    _waitConfirmation: boolean,
+  ): Promise<string[]> {
+    throw new TradeError(501, 'Speedlanding requires QUIC transport with mTLS; not supported in Node.js SDK. Use the Rust SDK.');
+  }
+
+  getTipAccount(): string { return this.tipAccount; }
+  getSwqosType(): SwqosType { return SwqosType.Speedlanding; }
+  minTipSol(): number { return MIN_TIP_SPEEDLANDING; }
+}
+
 // ===== Client Factory =====
 
 export interface SwqosClientConfig {
@@ -1222,6 +1358,16 @@ export class ClientFactory {
       case SwqosType.NextBlock: {
         const endpoint = config.customUrl || NEXT_BLOCK_ENDPOINTS[region];
         return new NextBlockClient(rpcUrl, endpoint, config.apiKey);
+      }
+
+      case SwqosType.Soyas: {
+        const endpoint = config.customUrl || SOYAS_ENDPOINTS[region];
+        return new SoyasClient(rpcUrl, endpoint, config.apiKey);
+      }
+
+      case SwqosType.Speedlanding: {
+        const endpoint = config.customUrl || SPEEDLANDING_ENDPOINTS[region];
+        return new SpeedlandingClient(rpcUrl, endpoint, config.apiKey);
       }
 
       case SwqosType.Default:
