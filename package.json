@@ -70,11 +70,13 @@
     "url": "https://github.com/0xfnzero/sol-trade-sdk-ts"
   },
   "dependencies": {
+    "@matrixai/quic": "^2.0.9",
     "@solana/spl-token": "^0.4.6",
     "@solana/web3.js": "^1.91.0",
     "bn.js": "^5.2.1",
     "borsh": "^0.7.0",
     "bs58": "^5.0.0",
+    "selfsigned": "^5.5.0",
     "tweetnacl": "^1.0.3"
   },
   "devDependencies": {

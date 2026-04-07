@@ -1197,19 +1197,82 @@ export class DefaultClient extends BaseClient {
   }
 }
 
+// ===== QUIC helper (Soyas / Speedlanding) =====
+
+/**
+ * Send raw transaction bytes via QUIC to a Solana TPU endpoint.
+ *
+ * Uses @matrixai/quic (ESM-only) via dynamic import so this file stays CJS-
+ * compatible. A self-signed Ed25519 certificate is generated via `selfsigned`
+ * with ALPN "solana-tpu", matching the pattern of go-solana-tpu and the Rust
+ * solana-tls-utils crate.
+ *
+ * Install optional deps:  npm install @matrixai/quic selfsigned
+ */
+async function sendViaQUIC(
+  host: string,
+  port: number,
+  serverName: string,
+  txBytes: Uint8Array,
+): Promise<void> {
+  // Dynamic imports so the file compiles/runs even without the optional packages
+  let QUICClient: any;
+  let selfsigned: any;
+  try {
+    ({ QUICClient } = await import('@matrixai/quic'));
+    selfsigned = (await import('selfsigned')).default ?? (await import('selfsigned'));
+  } catch {
+    throw new TradeError(
+      501,
+      'QUIC not available: run "npm install @matrixai/quic selfsigned" to enable Soyas/Speedlanding.',
+    );
+  }
+
+  // Generate ephemeral self-signed Ed25519 certificate (no server verification)
+  const pems = selfsigned.generate(
+    [{ name: 'commonName', value: 'Solana node' }],
+    { days: 36500, algorithm: 'ed25519' },
+  );
+
+  const client = await QUICClient.createQUICClient({
+    host,
+    port,
+    config: {
+      key: pems.private,
+      cert: pems.cert,
+      verifyPeer: false,
+      applicationProtos: ['solana-tpu'],
+      tlsVersion: 'tlsv13',
+    },
+    logger: undefined,
+  });
+
+  try {
+    const stream = client.connection.newStream('uni');
+    const writer = stream.writable.getWriter();
+    await writer.write(txBytes);
+    await writer.close();
+    // Brief delay to allow the stack to flush before closing
+    await new Promise(resolve => setTimeout(resolve, 50));
+  } finally {
+    await client.destroy();
+  }
+}
+
 // ===== Soyas Client =====
 
 /**
  * Soyas SWQOS client.
  *
- * Transport: QUIC with mTLS (Keypair-based certificate).
+ * Transport: QUIC with self-signed Ed25519 cert, ALPN "solana-tpu".
  * Endpoint:  host:port (e.g. nyc.landing.soyas.xyz:9000)
- * Auth:      Solana Keypair (base58) used as mTLS client certificate.
- * Note:      QUIC is not natively supported in Node.js. Use the Rust SDK for
- *            full QUIC support. This client holds config for future integration.
+ * SNI:       "soyas-landing" (matches Rust SDK SOYAS_SERVER constant)
+ * Requires:  npm install @matrixai/quic selfsigned
  */
 export class SoyasClient implements SwqosClient {
   private readonly tipAccount: string;
+  private readonly host: string;
+  private readonly port: number;
 
   constructor(
     private readonly rpcUrl: string,
@@ -1217,22 +1280,29 @@ export class SoyasClient implements SwqosClient {
     private readonly apiKey?: string,
   ) {
     this.tipAccount = randomChoice(SOYAS_TIP_ACCOUNTS);
+    const parts = endpoint.split(':');
+    this.host = parts.slice(0, -1).join(':') || endpoint;
+    this.port = parts.length > 1 ? parseInt(parts[parts.length - 1]!, 10) : 9000;
   }
 
   async sendTransaction(
     _tradeType: TradeType,
-    _transaction: Buffer,
+    transaction: Buffer,
     _waitConfirmation: boolean,
   ): Promise<string> {
-    throw new TradeError(501, 'Soyas requires QUIC transport with mTLS; not supported in Node.js SDK. Use the Rust SDK.');
+    await sendViaQUIC(this.host, this.port, 'soyas-landing', new Uint8Array(transaction));
+    return '';
   }
 
   async sendTransactions(
-    _tradeType: TradeType,
-    _transactions: Buffer[],
-    _waitConfirmation: boolean,
+    tradeType: TradeType,
+    transactions: Buffer[],
+    waitConfirmation: boolean,
   ): Promise<string[]> {
-    throw new TradeError(501, 'Soyas requires QUIC transport with mTLS; not supported in Node.js SDK. Use the Rust SDK.');
+    for (const tx of transactions) {
+      await this.sendTransaction(tradeType, tx, waitConfirmation);
+    }
+    return transactions.map(() => '');
   }
 
   getTipAccount(): string { return this.tipAccount; }
@@ -1245,14 +1315,17 @@ export class SoyasClient implements SwqosClient {
 /**
  * Speedlanding SWQOS client.
  *
- * Transport: QUIC with mTLS (Keypair-based certificate).
+ * Transport: QUIC with self-signed Ed25519 cert, ALPN "solana-tpu".
  * Endpoint:  host:port (e.g. nyc.speedlanding.trade:17778)
- * Auth:      Solana Keypair (base58) used as mTLS client certificate.
- * Note:      QUIC is not natively supported in Node.js. Use the Rust SDK for
- *            full QUIC support. This client holds config for future integration.
+ * SNI:       derived from hostname; falls back to "speed-landing" for bare IPs
+ *            (matches Rust SDK behavior).
+ * Requires:  npm install @matrixai/quic selfsigned
  */
 export class SpeedlandingClient implements SwqosClient {
   private readonly tipAccount: string;
+  private readonly host: string;
+  private readonly port: number;
+  private readonly serverName: string;
 
   constructor(
     private readonly rpcUrl: string,
@@ -1260,22 +1333,31 @@ export class SpeedlandingClient implements SwqosClient {
     private readonly apiKey?: string,
   ) {
     this.tipAccount = randomChoice(SPEEDLANDING_TIP_ACCOUNTS);
+    const lastColon = endpoint.lastIndexOf(':');
+    this.host = lastColon >= 0 ? endpoint.slice(0, lastColon) : endpoint;
+    this.port = lastColon >= 0 ? parseInt(endpoint.slice(lastColon + 1), 10) : 17778;
+    // Use hostname as SNI; fall back to "speed-landing" for bare IP addresses
+    this.serverName = /^\d+\.\d+\.\d+\.\d+$/.test(this.host) ? 'speed-landing' : this.host;
   }
 
   async sendTransaction(
     _tradeType: TradeType,
-    _transaction: Buffer,
+    transaction: Buffer,
     _waitConfirmation: boolean,
   ): Promise<string> {
-    throw new TradeError(501, 'Speedlanding requires QUIC transport with mTLS; not supported in Node.js SDK. Use the Rust SDK.');
+    await sendViaQUIC(this.host, this.port, this.serverName, new Uint8Array(transaction));
+    return '';
   }
 
   async sendTransactions(
-    _tradeType: TradeType,
-    _transactions: Buffer[],
-    _waitConfirmation: boolean,
+    tradeType: TradeType,
+    transactions: Buffer[],
+    waitConfirmation: boolean,
   ): Promise<string[]> {
-    throw new TradeError(501, 'Speedlanding requires QUIC transport with mTLS; not supported in Node.js SDK. Use the Rust SDK.');
+    for (const tx of transactions) {
+      await this.sendTransaction(tradeType, tx, waitConfirmation);
+    }
+    return transactions.map(() => '');
   }
 
   getTipAccount(): string { return this.tipAccount; }
