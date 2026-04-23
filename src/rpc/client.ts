@@ -297,6 +297,7 @@ export class AsyncRPCClient {
 
   // ===== Utility Methods =====
 
+  /** Rust `poll_any_transaction_confirmation`: success when err is none and status is confirmed or finalized. */
   async waitForConfirmation(
     signature: string,
     timeout: number = 30000,
@@ -309,11 +310,12 @@ export class AsyncRPCClient {
       const status = statuses[0];
 
       if (status) {
-        if (status.confirmationStatus === 'finalized') {
-          return true;
-        }
         if (status.err) {
           return false;
+        }
+        const cs = status.confirmationStatus;
+        if (cs === 'confirmed' || cs === 'finalized') {
+          return true;
         }
       }
 

@@ -52,6 +52,18 @@ export const PUMPSWAP_MAYHEM_FEE_RECIPIENTS: PublicKey[] = [
   new PublicKey('6AUH3WEHucYZyC61hqpqYUWVto5qA5hjHuNQ32GNnNxA'),
 ];
 
+/** Protocol extra fee recipients (Apr 2026); after pool-v2: readonly, then quote ATA (mutable). */
+export const PUMPSWAP_PROTOCOL_EXTRA_FEE_RECIPIENTS: PublicKey[] = [
+  new PublicKey('5YxQFdt3Tr9zJLvkFccqXVUwhdTWJQc1fFg2YPbxvxeD'),
+  new PublicKey('9M4giFFMxmFGXtc3feFzRai56WbBqehoSeRE5GK7gf7'),
+  new PublicKey('GXPFM2caqTtQYC2cJ5yJRi9VDkpsYZXzYdwYpGnLmtDL'),
+  new PublicKey('3BpXnfJaUTiwXnJNe7Ej1rcbzqTTQUvLShZaWazebsVR'),
+  new PublicKey('5cjcW9wExnJJiqgLjq7DEG75Pm6JBgE1hNv4B2vHXUW6'),
+  new PublicKey('EHAAiTxcdDwQ3U4bU6YcMsQGaekdzLS3B5SmYo46kJtL'),
+  new PublicKey('5eHhjP8JaYkz83CWwvGU2uMUXefd3AazWGx4gpcuEEYD'),
+  new PublicKey('A7hAgCzFw14fejgCp387JUJRMNyz4j89JKnhtKU8piqW'),
+];
+
 // Discriminators
 export const PUMPSWAP_BUY_DISCRIMINATOR = Buffer.from([102, 6, 61, 18, 1, 218, 235, 234]);
 export const PUMPSWAP_BUY_EXACT_QUOTE_IN_DISCRIMINATOR = Buffer.from([198, 46, 21, 82, 180, 217, 232, 112]);
@@ -79,6 +91,11 @@ export function getMayhemFeeRecipientRandom(): PublicKey {
     return PUMPSWAP_MAYHEM_FEE_RECIPIENTS[0]!;
   }
   return recipient;
+}
+
+export function getPumpSwapProtocolExtraFeeRecipientRandom(): PublicKey {
+  const index = Math.floor(Math.random() * PUMPSWAP_PROTOCOL_EXTRA_FEE_RECIPIENTS.length);
+  return PUMPSWAP_PROTOCOL_EXTRA_FEE_RECIPIENTS[index] ?? PUMPSWAP_PROTOCOL_EXTRA_FEE_RECIPIENTS[0]!;
 }
 
 /**
@@ -476,6 +493,13 @@ export function buildBuyInstructions(params: BuildBuyParams): TransactionInstruc
   // Add pool v2 PDA
   const poolV2 = getPoolV2PDA(baseMint);
   accounts.push({ pubkey: poolV2, isSigner: false, isWritable: false });
+  const protocolExtraFee = getPumpSwapProtocolExtraFeeRecipientRandom();
+  accounts.push({ pubkey: protocolExtraFee, isSigner: false, isWritable: false });
+  accounts.push({
+    pubkey: getAssociatedTokenAddress(protocolExtraFee, quoteMint, TOKEN_PROGRAM),
+    isSigner: false,
+    isWritable: true,
+  });
 
   // Build instruction data
   const trackVolume = isCashbackCoin ? Buffer.from([1, 1]) : Buffer.from([1, 0]);
@@ -662,6 +686,13 @@ export function buildSellInstructions(params: BuildSellParams): TransactionInstr
   // Add pool v2 PDA
   const poolV2 = getPoolV2PDA(baseMint);
   accounts.push({ pubkey: poolV2, isSigner: false, isWritable: false });
+  const protocolExtraFee = getPumpSwapProtocolExtraFeeRecipientRandom();
+  accounts.push({ pubkey: protocolExtraFee, isSigner: false, isWritable: false });
+  accounts.push({
+    pubkey: getAssociatedTokenAddress(protocolExtraFee, quoteMint, TOKEN_PROGRAM),
+    isSigner: false,
+    isWritable: true,
+  });
 
   // Build instruction data
   const data = Buffer.alloc(24);

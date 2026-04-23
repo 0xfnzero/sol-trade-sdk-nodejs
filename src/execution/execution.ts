@@ -5,6 +5,14 @@
  * Based on sol-trade-sdk Rust implementation patterns.
  */
 
+import { PublicKey } from '@solana/web3.js';
+import {
+  SOL_TOKEN_ACCOUNT,
+  WSOL_TOKEN_ACCOUNT,
+  USD1_TOKEN_ACCOUNT,
+  USDC_TOKEN_ACCOUNT,
+} from '../constants';
+
 // ===== Constants =====
 
 export const BYTES_PER_ACCOUNT = 32;
@@ -50,12 +58,12 @@ export class BranchOptimizer {
 export class Prefetch {
   /**
    * Prefetch instruction data into cache
+   * Accepts any instruction-shaped array (Rust: `Prefetch::instructions`).
    */
-  static instructions(instructions: Instruction[]): void {
+  static instructions(instructions: ReadonlyArray<unknown>): void {
     if (instructions.length === 0) return;
 
     // Touch first, middle, and last instructions
-    // @ts-ignore - accessing for cache effect
     void instructions[0];
     if (instructions.length > 2) {
       void instructions[Math.floor(instructions.length / 2)];
@@ -148,39 +156,57 @@ export interface Instruction {
 
 // ===== Instruction Processor =====
 
+/** Account metas: web3 `TransactionInstruction.keys` or internal `Instruction.accounts`. */
+function instructionAccountCount(ix: {
+  keys?: readonly unknown[];
+  accounts?: readonly unknown[];
+}): number {
+  if (ix.keys !== undefined) return ix.keys.length;
+  if (ix.accounts !== undefined) return ix.accounts.length;
+  return 0;
+}
+
 /**
  * Handles instruction preprocessing and validation.
  * Based on Rust's InstructionProcessor pattern.
  */
 export class InstructionProcessor {
   /**
-   * Validate and prepare instructions for execution
+   * Validate and prepare instructions for execution.
+   * Rust: `InstructionProcessor::preprocess` (empty check, prefetch, warn when count exceeds {@link MAX_INSTRUCTIONS_WARN}).
    */
-  static preprocess(instructions: Instruction[]): void {
-    if (BranchOptimizer.unlikely(instructions.length === 0, true, false)) {
+  static preprocess(instructions: ReadonlyArray<unknown>): void {
+    if (instructions.length === 0) {
       throw new Error('Instructions empty');
     }
 
-    // Prefetch instructions into cache
     Prefetch.instructions(instructions);
 
-    if (BranchOptimizer.unlikely(instructions.length > MAX_INSTRUCTIONS_WARN, true, false)) {
-      // Log warning in production
+    if (instructions.length > MAX_INSTRUCTIONS_WARN) {
+      console.warn(
+        `[sol-trade-sdk] Large instruction count: ${instructions.length}`
+      );
     }
   }
 
   /**
-   * Calculate total size for buffer allocation
+   * Calculate total size for buffer allocation (web3 `keys` or internal `accounts`).
    */
-  static calculateSize(instructions: Instruction[]): number {
+  static calculateSize(
+    instructions: ReadonlyArray<{
+      data: { length: number };
+      keys?: readonly unknown[];
+      accounts?: readonly unknown[];
+    }>
+  ): number {
     let totalSize = 0;
     for (let i = 0; i < instructions.length; i++) {
-      // Prefetch next instruction
       if (i + 1 < instructions.length) {
         void instructions[i + 1];
       }
-      totalSize += instructions[i].data.length;
-      totalSize += instructions[i].accounts.length * BYTES_PER_ACCOUNT;
+      const ix = instructions[i]!;
+      totalSize += ix.data.length;
+      totalSize += instructionAccountCount(ix) * BYTES_PER_ACCOUNT;
     }
     return totalSize;
   }
@@ -192,16 +218,16 @@ export class InstructionProcessor {
  * Trade direction and execution path utilities
  */
 export class ExecutionPath {
-  // Standard mints (32 bytes each)
-  static readonly SOL_MINT = new Uint8Array(32).fill(0);
-  static readonly WSOL_MINT = new Uint8Array(32).fill(0);
-
   /**
-   * Determine if this is a buy based on input mint
+   * Rust `ExecutionPath::is_buy`: input mint is quote-side (SOL / WSOL / USD1 / USDC).
    */
-  static isBuy(inputMint: Uint8Array, quoteMints: Uint8Array[]): boolean {
-    const isBuy = quoteMints.some((m) => MemoryOps.compare(m, inputMint));
-    return BranchOptimizer.likely(isBuy, true, false);
+  static isBuy(inputMint: PublicKey): boolean {
+    return (
+      inputMint.equals(SOL_TOKEN_ACCOUNT) ||
+      inputMint.equals(WSOL_TOKEN_ACCOUNT) ||
+      inputMint.equals(USD1_TOKEN_ACCOUNT) ||
+      inputMint.equals(USDC_TOKEN_ACCOUNT)
+    );
   }
 
   /**

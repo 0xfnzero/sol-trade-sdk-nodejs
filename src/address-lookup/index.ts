@@ -41,7 +41,7 @@ export async function fetchAddressLookupTableAccount(
   try {
     const info = await connection.getAccountInfo(
       lookupTableAddress,
-      commitment || 'confirmed'
+      commitment ?? 'confirmed'
     );
 
     if (info === null) {

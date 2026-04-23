@@ -14,6 +14,7 @@ import {
   Keypair,
   Transaction,
   LAMPORTS_PER_SOL,
+  type Commitment,
 } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { TOKEN_PROGRAM, WSOL_TOKEN_ACCOUNT } from '../constants';
@@ -109,7 +110,8 @@ export async function transferSol(
   connection: Connection,
   payer: Keypair,
   receiveWallet: PublicKey,
-  amount: bigint
+  amount: bigint,
+  commitment: Commitment = 'confirmed'
 ): Promise<string> {
   if (amount === BigInt(0)) {
     throw new Error('transfer_sol: Amount cannot be zero');
@@ -133,10 +135,9 @@ export async function transferSol(
     )]),
   };
   
-  // Get recent blockhash
-  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+  const { blockhash, lastValidBlockHeight } =
+    await connection.getLatestBlockhash(commitment);
   
-  // Build transaction
   const transaction = new Transaction({
     blockhash,
     lastValidBlockHeight,
@@ -145,9 +146,15 @@ export async function transferSol(
   transaction.add(transferInstruction);
   transaction.sign(payer);
   
-  // Send and confirm
   const signature = await connection.sendRawTransaction(transaction.serialize());
-  await connection.confirmTransaction(signature);
+  await connection.confirmTransaction(
+    {
+      signature,
+      blockhash,
+      lastValidBlockHeight,
+    },
+    commitment
+  );
   
   return signature;
 }
@@ -161,7 +168,8 @@ export async function transferSol(
 export async function closeTokenAccount(
   connection: Connection,
   payer: Keypair,
-  mint: PublicKey
+  mint: PublicKey,
+  commitment: Commitment = 'confirmed'
 ): Promise<string> {
   // Get associated token account address
   const ata = getAssociatedTokenAddressFast(payer.publicKey, mint, TOKEN_PROGRAM);
@@ -183,10 +191,9 @@ export async function closeTokenAccount(
     TOKEN_PROGRAM
   );
   
-  // Get recent blockhash
-  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+  const { blockhash, lastValidBlockHeight } =
+    await connection.getLatestBlockhash(commitment);
   
-  // Build transaction
   const transaction = new Transaction({
     blockhash,
     lastValidBlockHeight,
@@ -195,9 +202,15 @@ export async function closeTokenAccount(
   transaction.add(closeAccountIx);
   transaction.sign(payer);
   
-  // Send and confirm
   const signature = await connection.sendRawTransaction(transaction.serialize());
-  await connection.confirmTransaction(signature);
+  await connection.confirmTransaction(
+    {
+      signature,
+      blockhash,
+      lastValidBlockHeight,
+    },
+    commitment
+  );
   
   return signature;
 }

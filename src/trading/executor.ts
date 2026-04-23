@@ -13,17 +13,16 @@ import {
   Commitment,
 } from '@solana/web3.js';
 import {
-  SwqosType,
-  TradeType,
-  TradeError,
-  GasFeeStrategy,
-} from '../index';
-import {
   SwqosClient,
   ClientFactory,
   SwqosClientConfig,
 } from '../swqos/clients';
-import { GasFeeStrategyType } from '../common/gas-fee-strategy';
+import {
+  GasFeeStrategy,
+  GasFeeStrategyType,
+  SwqosType,
+  TradeType,
+} from '../common/gas-fee-strategy';
 
 // ===== Types =====
 
@@ -56,6 +55,8 @@ export interface TradeConfig {
   gasFeeStrategy?: GasFeeStrategy;
   confirmationTimeoutMs?: number;
   confirmationRetryCount?: number;
+  /** RPC commitment for `Connection` (default `confirmed`); align with main `TradeConfig`. */
+  commitment?: Commitment;
 }
 
 export interface BuildTransactionOptions {
@@ -82,7 +83,9 @@ export class TradeExecutor {
   private confirmationRetry: number;
 
   constructor(private config: TradeConfig) {
-    this.connection = new Connection(config.rpcUrl, 'confirmed');
+    this.connection = new Connection(config.rpcUrl, {
+      commitment: config.commitment ?? 'confirmed',
+    });
     this.gasStrategy = config.gasFeeStrategy;
     this.confirmationTimeout = config.confirmationTimeoutMs || 30000;
     this.confirmationRetry = config.confirmationRetryCount || 30;
@@ -112,7 +115,7 @@ export class TradeExecutor {
   async execute(
     tradeType: TradeType,
     transaction: Buffer,
-    opts: ExecuteOptions = defaultExecuteOptions()
+    opts: ExecutorOptions = defaultExecutorOptions()
   ): Promise<TradeResult> {
     if (this.clients.size === 0) {
       return {
@@ -131,7 +134,7 @@ export class TradeExecutor {
   private async executeParallel(
     tradeType: TradeType,
     transaction: Buffer,
-    opts: ExecuteOptions
+    opts: ExecutorOptions
   ): Promise<TradeResult> {
     const promises: Promise<TradeResult>[] = [];
 
@@ -166,7 +169,7 @@ export class TradeExecutor {
   private async executeSequential(
     tradeType: TradeType,
     transaction: Buffer,
-    opts: ExecuteOptions
+    opts: ExecutorOptions
   ): Promise<TradeResult> {
     for (let retry = 0; retry < opts.maxRetries; retry++) {
       for (const client of this.clients.values()) {
@@ -192,7 +195,7 @@ export class TradeExecutor {
     client: SwqosClient,
     tradeType: TradeType,
     transaction: Buffer,
-    opts: ExecuteOptions
+    opts: ExecutorOptions
   ): Promise<TradeResult> {
     const startTime = Date.now();
 
@@ -229,6 +232,7 @@ export class TradeExecutor {
     }
   }
 
+  /** Rust `poll_any_transaction_confirmation`: success when err is none and status is confirmed or finalized. */
   private async waitForConfirmation(signature: string): Promise<boolean> {
     const startTime = Date.now();
     const timeoutMs = this.confirmationTimeout;
@@ -237,11 +241,12 @@ export class TradeExecutor {
       try {
         const status = await this.connection.getSignatureStatus(signature);
         if (status.value) {
-          if (status.value.confirmationStatus === 'finalized') {
-            return true;
-          }
           if (status.value.err) {
             return false;
+          }
+          const cs = status.value.confirmationStatus;
+          if (cs === 'confirmed' || cs === 'finalized') {
+            return true;
           }
         }
       } catch {
@@ -261,7 +266,7 @@ export class TradeExecutor {
   async executeMultiple(
     tradeType: TradeType,
     transactions: Buffer[],
-    opts: ExecuteOptions = defaultExecuteOptions()
+    opts: ExecutorOptions = defaultExecutorOptions()
   ): Promise<TradeResult[]> {
     return Promise.all(
       transactions.map(tx => this.execute(tradeType, tx, opts))

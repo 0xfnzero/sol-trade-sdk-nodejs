@@ -61,6 +61,34 @@ export const PUMPFUN_FEE_RECIPIENT = new PublicKey(
   "62qc2CNXwrYqQScmEdiZFFAnJR262PxWEuNQtxfafNgV"
 );
 
+/** Non-mayhem: random among primary + Pump.fun AMM protocol fee recipients (Rust `get_standard_fee_recipient_meta_random`). */
+export const PUMPFUN_STANDARD_FEE_RECIPIENTS: PublicKey[] = [
+  PUMPFUN_FEE_RECIPIENT,
+  new PublicKey("7VtfL8fvgNfhz17qKRMjzQEXgbdpnHHHQRh54R9jP2RJ"),
+  new PublicKey("7hTckgnGnLQR6sdH7YkqFTAA7VwTfYFaZ6EhEsU3saCX"),
+  new PublicKey("9rPYyANsfQZw3DnDmKE3YCQF5E8oD89UXoHn9JFEhJUz"),
+  new PublicKey("AVmoTthdrX6tKt4nDjco2D775W2YK3sDhxPcMmzUAmTY"),
+  new PublicKey("CebN5WGQ4jvEPvsVU4EoHEpgzq1VV7AbicfhtW4xC9iM"),
+  new PublicKey("FWsW1xNtWscwNmKv6wVsU1iTzRN6wmmk3MjxRP5tT7hz"),
+  new PublicKey("G5UZAVbAf46s7cKWoyKu8kYTip9DGTpbLZ2qa9Aq69dP"),
+];
+
+/**
+ * Protocol extra fee recipients (Apr 2026 breaking upgrade).
+ * One pubkey is appended after bonding-curve-v2 on buy/sell; account must be writable.
+ * @see https://github.com/pump-fun/pump-public-docs/blob/main/docs/BREAKING_FEE_RECIPIENT.md
+ */
+export const PUMPFUN_PROTOCOL_EXTRA_FEE_RECIPIENTS: PublicKey[] = [
+  new PublicKey("5YxQFdt3Tr9zJLvkFccqXVUwhdTWJQc1fFg2YPbxvxeD"),
+  new PublicKey("9M4giFFMxmFGXtc3feFzRai56WbBqehoSeRE5GK7gf7"),
+  new PublicKey("GXPFM2caqTtQYC2cJ5yJRi9VDkpsYZXzYdwYpGnLmtDL"),
+  new PublicKey("3BpXnfJaUTiwXnJNe7Ej1rcbzqTTQUvLShZaWazebsVR"),
+  new PublicKey("5cjcW9wExnJJiqgLjq7DEG75Pm6JBgE1hNv4B2vHXUW6"),
+  new PublicKey("EHAAiTxcdDwQ3U4bU6YcMsQGaekdzLS3B5SmYo46kJtL"),
+  new PublicKey("5eHhjP8JaYkz83CWwvGU2uMUXefd3AazWGx4gpcuEEYD"),
+  new PublicKey("A7hAgCzFw14fejgCp387JUJRMNyz4j89JKnhtKU8piqW"),
+];
+
 /** Mayhem Fee Recipients */
 export const PUMPFUN_MAYHEM_FEE_RECIPIENTS: PublicKey[] = [
   new PublicKey("GesfTA3X2arioaHp8bbKdjG9vJtskViWACZoYvxp4twS"),
@@ -166,6 +194,30 @@ export function getRandomMayhemFeeRecipient(): PublicKey {
   return recipient;
 }
 
+export function getStandardFeeRecipientRandom(): PublicKey {
+  const index = Math.floor(Math.random() * PUMPFUN_STANDARD_FEE_RECIPIENTS.length);
+  return PUMPFUN_STANDARD_FEE_RECIPIENTS[index] ?? PUMPFUN_FEE_RECIPIENT;
+}
+
+/** Random protocol extra fee recipient (after bonding-curve-v2, mutable). */
+export function getPumpFunProtocolExtraFeeRecipientRandom(): PublicKey {
+  const index = Math.floor(Math.random() * PUMPFUN_PROTOCOL_EXTRA_FEE_RECIPIENTS.length);
+  return PUMPFUN_PROTOCOL_EXTRA_FEE_RECIPIENTS[index] ?? PUMPFUN_PROTOCOL_EXTRA_FEE_RECIPIENTS[0]!;
+}
+
+/**
+ * Account #2 fee recipient: prefer gRPC/event `feeRecipient`; if `default` pubkey, random from mayhem or standard pool (Rust `pump_fun_fee_recipient_meta`).
+ */
+export function pumpFunFeeRecipientMeta(
+  fromStream: PublicKey | undefined,
+  isMayhemMode: boolean
+): PublicKey {
+  if (fromStream && !fromStream.equals(PublicKey.default)) {
+    return fromStream;
+  }
+  return isMayhemMode ? getRandomMayhemFeeRecipient() : getStandardFeeRecipientRandom();
+}
+
 // ============================================
 // Types
 // ============================================
@@ -185,6 +237,8 @@ export interface PumpFunParams {
   tokenProgram: PublicKey;
   associatedBondingCurve?: PublicKey;
   closeTokenAccountWhenSell?: boolean;
+  /** From parser/gRPC (`tradeEvent.feeRecipient`); default pubkey → random pool */
+  feeRecipient?: PublicKey;
 }
 
 export interface PumpFunBuildBuyParams {
@@ -254,7 +308,8 @@ export function buildPumpFunBuyInstructions(
   const payerPubkey = payer instanceof Keypair ? payer.publicKey : payer;
   const instructions: TransactionInstruction[] = [];
 
-  const { bondingCurve, creatorVault, tokenProgram, associatedBondingCurve } = protocolParams;
+  const { bondingCurve, creatorVault, tokenProgram, associatedBondingCurve, feeRecipient } =
+    protocolParams;
 
   // Derive bonding curve address
   const bondingCurveAddr =
@@ -295,10 +350,7 @@ export function buildPumpFunBuyInstructions(
     );
   }
 
-  // Determine fee recipient
-  const feeRecipient = bondingCurve.isMayhemMode
-    ? getRandomMayhemFeeRecipient()
-    : PUMPFUN_FEE_RECIPIENT;
+  const feeRecipientPk = pumpFunFeeRecipientMeta(feeRecipient, bondingCurve.isMayhemMode);
 
   // Derive bonding curve v2
   const bondingCurveV2 = getBondingCurveV2Pda(outputMint);
@@ -333,7 +385,7 @@ export function buildPumpFunBuyInstructions(
   // Build accounts
   const keys: AccountMeta[] = [
     { pubkey: PUMPFUN_GLOBAL_ACCOUNT, isSigner: false, isWritable: false },
-    { pubkey: feeRecipient, isSigner: false, isWritable: true },
+    { pubkey: feeRecipientPk, isSigner: false, isWritable: true },
     { pubkey: outputMint, isSigner: false, isWritable: false },
     { pubkey: bondingCurveAddr, isSigner: false, isWritable: true },
     { pubkey: associatedBondingCurveAddr, isSigner: false, isWritable: true },
@@ -349,6 +401,7 @@ export function buildPumpFunBuyInstructions(
     { pubkey: PUMPFUN_FEE_CONFIG, isSigner: false, isWritable: false },
     { pubkey: PUMPFUN_FEE_PROGRAM, isSigner: false, isWritable: false },
     { pubkey: bondingCurveV2, isSigner: false, isWritable: false },
+    { pubkey: getPumpFunProtocolExtraFeeRecipientRandom(), isSigner: false, isWritable: true },
   ];
 
   instructions.push(
@@ -386,7 +439,14 @@ export function buildPumpFunSellInstructions(
   const payerPubkey = payer instanceof Keypair ? payer.publicKey : payer;
   const instructions: TransactionInstruction[] = [];
 
-  const { bondingCurve, creatorVault, tokenProgram, associatedBondingCurve, closeTokenAccountWhenSell } = protocolParams;
+  const {
+    bondingCurve,
+    creatorVault,
+    tokenProgram,
+    associatedBondingCurve,
+    closeTokenAccountWhenSell,
+    feeRecipient,
+  } = protocolParams;
 
   // Derive bonding curve address
   const bondingCurveAddr =
@@ -411,10 +471,7 @@ export function buildPumpFunSellInstructions(
     tokenProgramId
   );
 
-  // Determine fee recipient
-  const feeRecipient = bondingCurve.isMayhemMode
-    ? getRandomMayhemFeeRecipient()
-    : PUMPFUN_FEE_RECIPIENT;
+  const feeRecipientPk = pumpFunFeeRecipientMeta(feeRecipient, bondingCurve.isMayhemMode);
 
   // Derive bonding curve v2
   const bondingCurveV2 = getBondingCurveV2Pda(inputMint);
@@ -431,7 +488,7 @@ export function buildPumpFunSellInstructions(
   // Build accounts
   const keys: AccountMeta[] = [
     { pubkey: PUMPFUN_GLOBAL_ACCOUNT, isSigner: false, isWritable: false },
-    { pubkey: feeRecipient, isSigner: false, isWritable: true },
+    { pubkey: feeRecipientPk, isSigner: false, isWritable: true },
     { pubkey: inputMint, isSigner: false, isWritable: false },
     { pubkey: bondingCurveAddr, isSigner: false, isWritable: true },
     { pubkey: associatedBondingCurveAddr, isSigner: false, isWritable: true },
@@ -454,6 +511,7 @@ export function buildPumpFunSellInstructions(
 
   // Add bonding curve v2
   keys.push({ pubkey: bondingCurveV2, isSigner: false, isWritable: false });
+  keys.push({ pubkey: getPumpFunProtocolExtraFeeRecipientRandom(), isSigner: false, isWritable: true });
 
   instructions.push(
     new TransactionInstruction({

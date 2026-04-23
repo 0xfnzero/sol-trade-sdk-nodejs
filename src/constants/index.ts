@@ -23,13 +23,14 @@ export const ASSOCIATED_TOKEN_PROGRAM = new PublicKey('ATokenGPvbdGVxr1b2hvZbsiq
 // Rent sysvar
 export const RENT = new PublicKey('SysvarRent111111111111111111111111111111111');
 
-// DEX Programs
-export const PUMPFUN_PROGRAM = new PublicKey('6EF8rrecthR5Dkzon8Nwu78hRvfCKopJFfWcCzNfXt3D');
-export const PUMPSWAP_PROGRAM_ID = new PublicKey('pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwq52pCSbAhL');
-export const BONK_PROGRAM = new PublicKey('bonk2zCzQaobPKMKsM5Rut46yHp3zQD1ntUk8Ld8ARq');
-export const RAYDIUM_CPMM_PROGRAM = new PublicKey('CPMMoo8L3F4NbTUBBfMTm5L2AhwDtLd6P4VeXvgQA2Po');
+// DEX Programs — aligned with sol-trade-sdk Rust (mainnet)
+export const PUMPFUN_PROGRAM = new PublicKey('6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P');
+/** PumpSwap AMM program (same as `instruction/pumpswap` PUMPSWAP_PROGRAM) */
+export const PUMPSWAP_PROGRAM_ID = new PublicKey('pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA');
+export const BONK_PROGRAM = new PublicKey('LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj');
+export const RAYDIUM_CPMM_PROGRAM = new PublicKey('CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C');
 export const RAYDIUM_AMM_V4_PROGRAM = new PublicKey('675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8');
-export const METEORA_DAMM_V2_PROGRAM = new PublicKey('LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YvKpNLuh');
+export const METEORA_DAMM_V2_PROGRAM = new PublicKey('cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG');
 
 // Fee recipients (generic SDK defaults)
 export const SDK_FEE_RECIPIENT = new PublicKey('CebN5WGQ4jvEPvsVU4EoHEpgzq1VV7AbicfhtW4Cs9tM');
@@ -39,11 +40,11 @@ export const SDK_MAYHEM_FEE_RECIPIENTS: PublicKey[] = [
   new PublicKey('82jN8eGgPvMSW1KP9W6GdW4bQ3YbB7sGgC6BhZnLVQvR'),
 ];
 
-// Instruction discriminators
+// Instruction discriminators — aligned with `instruction/pumpfun_builder` / Rust
 export const PUMPFUN_DISCRIMINATORS = {
-  BUY: Buffer.from([102, 6, 141, 196, 242, 95, 28, 167]),
-  SELL: Buffer.from([187, 75, 56, 100, 133, 176, 22, 141]),
-  BUY_EXACT_SOL_IN: Buffer.from([133, 104, 247, 38, 153, 106, 73, 253]),
+  BUY: Buffer.from([102, 6, 61, 18, 1, 218, 235, 234]),
+  SELL: Buffer.from([51, 230, 133, 164, 1, 127, 131, 173]),
+  BUY_EXACT_SOL_IN: Buffer.from([56, 252, 116, 8, 158, 223, 205, 95]),
   CLAIM_CASHBACK: Buffer.from([37, 58, 35, 126, 190, 53, 228, 197]),
 };
 
@@ -58,6 +59,29 @@ export const DEFAULT_SLIPPAGE = 500; // 5%
 export const DEFAULT_COMPUTE_UNITS = 200000;
 export const DEFAULT_PRIORITY_FEE = 100000;
 export const DEFAULT_TIP_LAMPORTS = 100000;
+
+/** Aggregate for consumers expecting a single `CONSTANTS` object (matches historical `index` export). */
+export const CONSTANTS = {
+  SYSTEM_PROGRAM,
+  TOKEN_PROGRAM,
+  TOKEN_PROGRAM_2022,
+  SOL_TOKEN_ACCOUNT,
+  WSOL_TOKEN_ACCOUNT,
+  USD1_TOKEN_ACCOUNT,
+  USDC_TOKEN_ACCOUNT,
+  ASSOCIATED_TOKEN_PROGRAM,
+  RENT,
+  PUMPFUN_PROGRAM,
+  PUMPSWAP_PROGRAM: PUMPSWAP_PROGRAM_ID,
+  BONK_PROGRAM,
+  RAYDIUM_CPMM_PROGRAM,
+  RAYDIUM_AMM_V4_PROGRAM,
+  METEORA_DAMM_V2_PROGRAM,
+  DEFAULT_SLIPPAGE,
+  DEFAULT_COMPUTE_UNITS,
+  DEFAULT_PRIORITY_FEE,
+  DEFAULT_TIP_LAMPORTS,
+} as const;
 
 // SWQOS endpoints
 export const SWQOS_ENDPOINTS: Record<string, Record<string, string>> = {

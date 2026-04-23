@@ -3,7 +3,8 @@
  * Implements various SWQOS (Solana Write Queue Operating System) providers.
  */
 
-import { SwqosType, SwqosRegion, TradeType, TradeError } from '../index';
+import { SwqosType, SwqosRegion, TradeType } from '../index';
+import { TradeError } from '../sdk-errors';
 
 // ===== Utility =====
 

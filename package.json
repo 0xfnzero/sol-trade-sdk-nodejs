@@ -7,34 +7,34 @@
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
+      "types": "./dist/index.d.ts",
       "import": "./dist/index.mjs",
-      "require": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "require": "./dist/index.js"
     },
     "./cache": {
+      "types": "./dist/cache/index.d.ts",
       "import": "./dist/cache/index.mjs",
-      "require": "./dist/cache/index.js",
-      "types": "./dist/cache/index.d.ts"
+      "require": "./dist/cache/index.js"
     },
     "./pool": {
+      "types": "./dist/pool/index.d.ts",
       "import": "./dist/pool/index.mjs",
-      "require": "./dist/pool/index.js",
-      "types": "./dist/pool/index.d.ts"
+      "require": "./dist/pool/index.js"
     },
     "./rpc": {
+      "types": "./dist/rpc/index.d.ts",
       "import": "./dist/rpc/index.mjs",
-      "require": "./dist/rpc/index.js",
-      "types": "./dist/rpc/index.d.ts"
+      "require": "./dist/rpc/index.js"
     },
     "./swqos": {
+      "types": "./dist/swqos/index.d.ts",
       "import": "./dist/swqos/index.mjs",
-      "require": "./dist/swqos/index.js",
-      "types": "./dist/swqos/index.d.ts"
+      "require": "./dist/swqos/index.js"
     },
     "./trading": {
+      "types": "./dist/trading/index.d.ts",
       "import": "./dist/trading/index.mjs",
-      "require": "./dist/trading/index.js",
-      "types": "./dist/trading/index.d.ts"
+      "require": "./dist/trading/index.js"
     }
   },
   "files": [

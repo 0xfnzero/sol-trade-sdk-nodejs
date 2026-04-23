@@ -246,7 +246,7 @@ export class SubscriptionManager {
         handle.recordUpdate();
         callback(accountInfo, context);
       },
-      config.commitment || 'confirmed'
+      config.commitment ?? 'confirmed'
     );
 
     handle.setSubscriptionId(subscriptionId);
@@ -286,7 +286,7 @@ export class SubscriptionManager {
         handle.recordUpdate();
         callback(keyedAccountInfo, context);
       },
-      config.commitment || 'confirmed',
+      config.commitment ?? 'confirmed',
       filters
     );
 
@@ -322,7 +322,7 @@ export class SubscriptionManager {
         handle.recordUpdate();
         callback(signatureResult, context);
       },
-      config.commitment || 'confirmed'
+      config.commitment ?? 'confirmed'
     );
 
     handle.setSubscriptionId(subscriptionId);

@@ -51,7 +51,11 @@ export interface ExecutionConfig {
   submitMode: SubmitMode;
   /** Whether to wait for confirmation */
   waitConfirmation: boolean;
-  /** Commitment level for confirmation */
+  /**
+   * Commitment level for confirmation polling.
+   * `finalized` waits for finalized only; any other value follows Rust
+   * `poll_any_transaction_confirmation` (confirmed or finalized, not processed-only).
+   */
   commitment: Commitment;
   /** Maximum number of retries */
   maxRetries: number;
@@ -554,9 +558,12 @@ export class AsyncTradeExecutor {
           if (status.value.err) {
             return false;
           }
-          if (status.value.confirmationStatus === commitment ||
-              (commitment === 'confirmed' && status.value.confirmationStatus === 'finalized')) {
-            return true;
+          const cs = status.value.confirmationStatus;
+          if (commitment === 'finalized') {
+            if (cs === 'finalized') return true;
+          } else {
+            // Rust `poll_any_transaction_confirmation`: Confirmed | Finalized only
+            if (cs === 'confirmed' || cs === 'finalized') return true;
           }
         }
       } catch {
