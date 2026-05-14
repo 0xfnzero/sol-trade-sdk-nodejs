@@ -9,14 +9,16 @@ export {
   AsyncTradeExecutor,
   SubmitMode,
   ExecutionStatus,
-  ExecutionConfig,
-  ExecutionProgress,
-  ExecutionResult,
   defaultExecutionConfig,
   hftExecutionConfig,
   reliableExecutionConfig,
   createAsyncExecutor,
   executeTrade,
+} from './async-executor';
+export type {
+  ExecutionConfig,
+  ExecutionProgress,
+  ExecutionResult,
 } from './async-executor';
 
 // ===== Transaction Pool =====
@@ -24,10 +26,6 @@ export {
   TransactionPool,
   TransactionStatus,
   PriorityLevel,
-  PoolConfig,
-  PoolStats,
-  PendingTransaction,
-  PriorityScore,
   PriorityCalculator,
   defaultPoolConfig,
   highThroughputPoolConfig,
@@ -35,15 +33,17 @@ export {
   createTransactionPool,
   submitToPool,
 } from './transaction-pool';
+export type {
+  PoolConfig,
+  PoolStats,
+  PendingTransaction,
+  PriorityScore,
+} from './transaction-pool';
 
 // ===== Confirmation Monitor =====
 export {
   ConfirmationMonitor,
   ConfirmationStatus,
-  ConfirmationConfig,
-  ConfirmationProgress,
-  ConfirmationResult,
-  TransactionError,
   defaultConfirmationConfig,
   fastConfirmationConfig,
   reliableConfirmationConfig,
@@ -51,17 +51,19 @@ export {
   waitForConfirmation,
   isConfirmed,
 } from './confirmation-monitor';
+export type {
+  ConfirmationConfig,
+  ConfirmationProgress,
+  ConfirmationResult,
+  TransactionError,
+} from './confirmation-monitor';
 
 // ===== Retry Handler =====
 export {
   RetryHandler,
   RetryStrategy,
-  RetryConfig,
-  RetryResult,
   CircuitBreaker,
   CircuitState,
-  CircuitBreakerConfig,
-  CircuitStats,
   ExponentialBackoff,
   defaultRetryConfig,
   aggressiveRetryConfig,
@@ -71,4 +73,10 @@ export {
   withRetry,
   withCircuitBreaker,
   calculateBackoff,
+} from './retry-handler';
+export type {
+  RetryConfig,
+  RetryResult,
+  CircuitBreakerConfig,
+  CircuitStats,
 } from './retry-handler';

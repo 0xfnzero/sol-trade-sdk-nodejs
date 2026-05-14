@@ -4,6 +4,7 @@
  */
 
 import { PublicKey, Connection, Commitment } from '@solana/web3.js';
+import type { GetProgramAccountsFilter } from '@solana/web3.js';
 
 // ===== Subscription State =====
 
@@ -275,10 +276,17 @@ export class SubscriptionManager {
     const handle = new SubscriptionHandle('program', config);
     handle.setState(SubscriptionState.Active);
 
-    const filters = config.filters?.map(f => ({
-      memcmp: f.memcmp,
-      dataSize: f.dataSize,
-    }));
+    const filters: GetProgramAccountsFilter[] | undefined = config.filters
+      ?.map((filter): GetProgramAccountsFilter | undefined => {
+        if (filter.memcmp) {
+          return { memcmp: filter.memcmp };
+        }
+        if (filter.dataSize !== undefined) {
+          return { dataSize: filter.dataSize };
+        }
+        return undefined;
+      })
+      .filter((filter): filter is GetProgramAccountsFilter => filter !== undefined);
 
     const subscriptionId = this.connection.onProgramAccountChange(
       config.programId,

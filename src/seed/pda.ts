@@ -54,9 +54,9 @@ const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvw
 export function base58Encode(buffer: Buffer): string {
   const digits = [0];
   for (let i = 0; i < buffer.length; i++) {
-    let carry = buffer[i];
+    let carry = buffer[i]!;
     for (let j = 0; j < digits.length; j++) {
-      carry += digits[j] << 8;
+      carry += digits[j]! << 8;
       digits[j] = carry % 58;
       carry = (carry / 58) | 0;
     }
@@ -67,10 +67,10 @@ export function base58Encode(buffer: Buffer): string {
   }
   let result = '';
   for (let i = 0; i < buffer.length && buffer[i] === 0; i++) {
-    result += BASE58_ALPHABET[0];
+    result += BASE58_ALPHABET[0]!;
   }
   for (let i = digits.length - 1; i >= 0; i--) {
-    result += BASE58_ALPHABET[digits[i]];
+    result += BASE58_ALPHABET[digits[i]!]!;
   }
   return result;
 }
@@ -78,12 +78,12 @@ export function base58Encode(buffer: Buffer): string {
 export function base58Decode(str: string): Buffer {
   const bytes = [0];
   for (let i = 0; i < str.length; i++) {
-    const carry = BASE58_ALPHABET.indexOf(str[i]);
+    let carry = BASE58_ALPHABET.indexOf(str[i]!);
     if (carry === -1) {
       throw new Error('Invalid base58 character');
     }
     for (let j = 0; j < bytes.length; j++) {
-      carry += bytes[j] * 58;
+      carry += bytes[j]! * 58;
       bytes[j] = carry & 0xff;
       carry >>= 8;
     }
@@ -151,7 +151,7 @@ export async function createProgramAddress(
 
   // Check if on ed25519 curve (simplified check)
   // In production, use proper ed25519 check
-  if (hash[31] & 0x80) {
+  if (hash[31]! & 0x80) {
     throw new Error('Invalid seeds: address on curve');
   }
 

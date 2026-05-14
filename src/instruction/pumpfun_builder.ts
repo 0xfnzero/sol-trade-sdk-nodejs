@@ -16,7 +16,10 @@ import {
 import {
   getAssociatedTokenAddressSync,
   createAssociatedTokenAccountInstruction,
+  createAssociatedTokenAccountIdempotentInstruction,
   TOKEN_PROGRAM_ID,
+  TOKEN_2022_PROGRAM_ID,
+  ASSOCIATED_TOKEN_PROGRAM_ID as SPL_ASSOCIATED_TOKEN_PROGRAM_ID,
   createCloseAccountInstruction,
   createSyncNativeInstruction,
   NATIVE_MINT,
@@ -89,6 +92,9 @@ export const PUMPFUN_PROTOCOL_EXTRA_FEE_RECIPIENTS: PublicKey[] = [
   new PublicKey("A7hAgCzFw14fejgCp387JUJRMNyz4j89JKnhtKU8piqW"),
 ];
 
+/** V2 buyback fee recipients (same static pool as Rust `get_buyback_fee_recipient_random`). */
+export const PUMPFUN_BUYBACK_FEE_RECIPIENTS: PublicKey[] = PUMPFUN_PROTOCOL_EXTRA_FEE_RECIPIENTS;
+
 /** Mayhem Fee Recipients */
 export const PUMPFUN_MAYHEM_FEE_RECIPIENTS: PublicKey[] = [
   new PublicKey("GesfTA3X2arioaHp8bbKdjG9vJtskViWACZoYvxp4twS"),
@@ -120,6 +126,21 @@ export const PUMPFUN_SELL_DISCRIMINATOR: Buffer = Buffer.from([
   51, 230, 133, 164, 1, 127, 131, 173,
 ]);
 
+/** PumpFun V2 buy instruction discriminator */
+export const PUMPFUN_BUY_V2_DISCRIMINATOR: Buffer = Buffer.from([
+  184, 23, 238, 97, 103, 197, 211, 61,
+]);
+
+/** PumpFun V2 sell instruction discriminator */
+export const PUMPFUN_SELL_V2_DISCRIMINATOR: Buffer = Buffer.from([
+  93, 246, 130, 60, 231, 233, 64, 178,
+]);
+
+/** PumpFun V2 exact quote-in buy discriminator */
+export const PUMPFUN_BUY_EXACT_QUOTE_IN_V2_DISCRIMINATOR: Buffer = Buffer.from([
+  194, 171, 28, 70, 104, 77, 91, 47,
+]);
+
 /** Claim cashback discriminator */
 export const PUMPFUN_CLAIM_CASHBACK_DISCRIMINATOR: Buffer = Buffer.from([
   37, 58, 35, 126, 190, 53, 228, 197,
@@ -133,6 +154,7 @@ export const PUMPFUN_BONDING_CURVE_SEED = Buffer.from("bonding-curve");
 export const PUMPFUN_BONDING_CURVE_V2_SEED = Buffer.from("bonding-curve-v2");
 export const PUMPFUN_CREATOR_VAULT_SEED = Buffer.from("creator-vault");
 export const PUMPFUN_USER_VOLUME_ACCUMULATOR_SEED = Buffer.from("user_volume_accumulator");
+export const PUMPFUN_SHARING_CONFIG_SEED = Buffer.from("sharing-config");
 
 // ============================================
 // PDA Derivation Functions
@@ -183,6 +205,17 @@ export function getPumpFunUserVolumeAccumulatorPda(user: PublicKey): PublicKey {
 }
 
 /**
+ * Derive the fee sharing config PDA for a PumpFun mint.
+ */
+export function getPumpFunFeeSharingConfigPda(mint: PublicKey): PublicKey {
+  const [pda] = PublicKey.findProgramAddressSync(
+    [PUMPFUN_SHARING_CONFIG_SEED, mint.toBuffer()],
+    PUMPFUN_FEE_PROGRAM
+  );
+  return pda;
+}
+
+/**
  * Get a random Mayhem fee recipient
  */
 export function getRandomMayhemFeeRecipient(): PublicKey {
@@ -203,6 +236,12 @@ export function getStandardFeeRecipientRandom(): PublicKey {
 export function getPumpFunProtocolExtraFeeRecipientRandom(): PublicKey {
   const index = Math.floor(Math.random() * PUMPFUN_PROTOCOL_EXTRA_FEE_RECIPIENTS.length);
   return PUMPFUN_PROTOCOL_EXTRA_FEE_RECIPIENTS[index] ?? PUMPFUN_PROTOCOL_EXTRA_FEE_RECIPIENTS[0]!;
+}
+
+/** Random PumpFun V2 buyback fee recipient. */
+export function getPumpFunBuybackFeeRecipientRandom(): PublicKey {
+  const index = Math.floor(Math.random() * PUMPFUN_BUYBACK_FEE_RECIPIENTS.length);
+  return PUMPFUN_BUYBACK_FEE_RECIPIENTS[index] ?? PUMPFUN_BUYBACK_FEE_RECIPIENTS[0]!;
 }
 
 /**
@@ -227,6 +266,7 @@ export interface PumpFunBondingCurve {
   virtualTokenReserves: bigint;
   virtualSolReserves: bigint;
   realTokenReserves: bigint;
+  creator?: PublicKey;
   isMayhemMode: boolean;
   isCashbackCoin: boolean;
 }
@@ -236,9 +276,15 @@ export interface PumpFunParams {
   creatorVault: PublicKey;
   tokenProgram: PublicKey;
   associatedBondingCurve?: PublicKey;
+  observedTradeCreator?: PublicKey;
+  feeSharingCreatorVaultIfActive?: PublicKey;
   closeTokenAccountWhenSell?: boolean;
   /** From parser/gRPC (`tradeEvent.feeRecipient`); default pubkey → random pool */
   feeRecipient?: PublicKey;
+  /** Quote mint for V2 instructions; default means WSOL. */
+  quoteMint?: PublicKey;
+  /** Per-params V2 toggle; global `TradeConfig.usePumpfunV2` also maps here. */
+  useV2Ix?: boolean;
 }
 
 export interface PumpFunBuildBuyParams {
@@ -248,8 +294,10 @@ export interface PumpFunBuildBuyParams {
   slippageBasisPoints?: bigint;
   fixedOutputAmount?: bigint;
   createOutputMintAta?: boolean;
+  createInputMintAta?: boolean;
   protocolParams: PumpFunParams;
   useExactSolAmount?: boolean;
+  usePumpFunV2?: boolean;
 }
 
 export interface PumpFunBuildSellParams {
@@ -258,8 +306,10 @@ export interface PumpFunBuildSellParams {
   inputAmount: bigint;
   slippageBasisPoints?: bigint;
   fixedOutputAmount?: bigint;
+  createOutputMintAta?: boolean;
   closeInputMintAta?: boolean;
   protocolParams: PumpFunParams;
+  usePumpFunV2?: boolean;
 }
 
 // ============================================
@@ -267,6 +317,11 @@ export interface PumpFunBuildSellParams {
 // ============================================
 
 const MAX_SLIPPAGE_BPS = BigInt(9999);
+const PUMPFUN_FEE_BASIS_POINTS = 95n;
+const PUMPFUN_CREATOR_FEE_BASIS_POINTS = 30n;
+const PHANTOM_DEFAULT_CREATOR_VAULT = new PublicKey(
+  "2DR3iqRPVThyRLVJnwjPW1qiGWrp8RUFfHVjMbZyhdNc"
+);
 
 function calculateWithSlippageBuy(amount: bigint, basisPoints: bigint): bigint {
   const bps = basisPoints > MAX_SLIPPAGE_BPS ? MAX_SLIPPAGE_BPS : basisPoints;
@@ -277,6 +332,116 @@ function calculateWithSlippageSell(amount: bigint, basisPoints: bigint): bigint 
   const bps = basisPoints > MAX_SLIPPAGE_BPS ? MAX_SLIPPAGE_BPS : basisPoints;
   const result = amount - (amount * bps) / BigInt(10000);
   return result > BigInt(0) ? result : BigInt(1);
+}
+
+function isUsablePubkey(value: PublicKey | undefined): value is PublicKey {
+  return (
+    value !== undefined &&
+    !value.equals(PublicKey.default) &&
+    !value.equals(PHANTOM_DEFAULT_CREATOR_VAULT)
+  );
+}
+
+function effectiveCreatorForTrade(protocolParams: PumpFunParams): PublicKey {
+  if (isUsablePubkey(protocolParams.observedTradeCreator)) {
+    return protocolParams.observedTradeCreator;
+  }
+  if (isUsablePubkey(protocolParams.bondingCurve.creator)) {
+    return protocolParams.bondingCurve.creator;
+  }
+  return PublicKey.default;
+}
+
+function resolveCreatorVaultForIx(protocolParams: PumpFunParams, mint: PublicKey): PublicKey {
+  if (isUsablePubkey(protocolParams.creatorVault)) {
+    return protocolParams.creatorVault;
+  }
+  if (isUsablePubkey(protocolParams.feeSharingCreatorVaultIfActive)) {
+    return protocolParams.feeSharingCreatorVaultIfActive;
+  }
+  const creator = effectiveCreatorForTrade(protocolParams);
+  if (isUsablePubkey(creator)) {
+    return getCreatorVaultPda(creator);
+  }
+  throw new Error(`creator_vault PDA derivation failed for mint ${mint.toBase58()}`);
+}
+
+function resolveCreatorVaultForSellV2(protocolParams: PumpFunParams, mint: PublicKey): PublicKey {
+  if (isUsablePubkey(protocolParams.creatorVault)) {
+    return protocolParams.creatorVault;
+  }
+  if (isUsablePubkey(protocolParams.feeSharingCreatorVaultIfActive)) {
+    return protocolParams.feeSharingCreatorVaultIfActive;
+  }
+  const curveCreator = protocolParams.bondingCurve.creator;
+  if (isUsablePubkey(curveCreator)) {
+    return getCreatorVaultPda(curveCreator);
+  }
+  throw new Error(`creator_vault PDA derivation failed (curve_creator=${String(curveCreator)}, mint=${mint.toBase58()})`);
+}
+
+function effectivePumpMintTokenProgram(mint: PublicKey, protocolParams: PumpFunParams): PublicKey {
+  if (mint.toBase58().endsWith("pump")) {
+    return TOKEN_2022_PROGRAM_ID;
+  }
+  if (isUsablePubkey(protocolParams.tokenProgram)) {
+    return protocolParams.tokenProgram;
+  }
+  return TOKEN_2022_PROGRAM_ID;
+}
+
+function effectiveQuoteMint(protocolParams: PumpFunParams): PublicKey {
+  return isUsablePubkey(protocolParams.quoteMint) ? protocolParams.quoteMint : NATIVE_MINT;
+}
+
+function associatedTokenAddress(mint: PublicKey, owner: PublicKey, tokenProgram: PublicKey): PublicKey {
+  return getAssociatedTokenAddressSync(
+    mint,
+    owner,
+    true,
+    tokenProgram,
+    SPL_ASSOCIATED_TOKEN_PROGRAM_ID
+  );
+}
+
+function getBuyTokenAmountFromSolAmount(
+  amount: bigint,
+  bondingCurve: PumpFunBondingCurve,
+  creator: PublicKey
+): bigint {
+  if (amount === 0n || bondingCurve.virtualTokenReserves === 0n) {
+    return 0n;
+  }
+  const totalFeeBps =
+    PUMPFUN_FEE_BASIS_POINTS + (isUsablePubkey(creator) ? PUMPFUN_CREATOR_FEE_BASIS_POINTS : 0n);
+  const inputAmount = (amount * 10_000n) / (totalFeeBps + 10_000n);
+  const denominator = bondingCurve.virtualSolReserves + inputAmount;
+  if (denominator === 0n) {
+    return 0n;
+  }
+  let tokensReceived = (inputAmount * bondingCurve.virtualTokenReserves) / denominator;
+  tokensReceived =
+    tokensReceived < bondingCurve.realTokenReserves ? tokensReceived : bondingCurve.realTokenReserves;
+  if (tokensReceived <= 100n * 1_000_000n) {
+    tokensReceived = amount > 10_000_000n ? 25_547_619n * 1_000_000n : 255_476n * 1_000_000n;
+  }
+  return tokensReceived;
+}
+
+function getSellSolAmountFromTokenAmount(
+  amount: bigint,
+  bondingCurve: PumpFunBondingCurve,
+  creator: PublicKey
+): bigint {
+  if (amount === 0n || bondingCurve.virtualTokenReserves === 0n) {
+    return 0n;
+  }
+  const solCost =
+    (amount * bondingCurve.virtualSolReserves) / (bondingCurve.virtualTokenReserves + amount);
+  const totalFeeBps =
+    PUMPFUN_FEE_BASIS_POINTS + (isUsablePubkey(creator) ? PUMPFUN_CREATOR_FEE_BASIS_POINTS : 0n);
+  const fee = (solCost * totalFeeBps + 9_999n) / 10_000n;
+  return solCost > fee ? solCost - fee : 0n;
 }
 
 // ============================================
@@ -290,16 +455,26 @@ function calculateWithSlippageSell(amount: bigint, basisPoints: bigint): bigint 
 export function buildPumpFunBuyInstructions(
   params: PumpFunBuildBuyParams
 ): TransactionInstruction[] {
-  const {
-    payer,
-    outputMint,
-    inputAmount,
-    slippageBasisPoints = BigInt(1000),
-    fixedOutputAmount,
-    createOutputMintAta = true,
-    protocolParams,
-    useExactSolAmount = true,
-  } = params;
+	const {
+	  payer,
+	  outputMint,
+	  inputAmount,
+	  slippageBasisPoints = BigInt(1000),
+	  fixedOutputAmount,
+	  createOutputMintAta = true,
+	  createInputMintAta = false,
+	  protocolParams,
+	  useExactSolAmount = true,
+	  usePumpFunV2 = false,
+	} = params;
+
+	if (usePumpFunV2 || protocolParams.useV2Ix || isUsablePubkey(protocolParams.quoteMint)) {
+	  return buildPumpFunBuyV2Instructions({
+	    ...params,
+	    createInputMintAta,
+	    usePumpFunV2: true,
+	  });
+	}
 
   if (inputAmount === BigInt(0)) {
     throw new Error("Amount cannot be zero");
@@ -308,8 +483,16 @@ export function buildPumpFunBuyInstructions(
   const payerPubkey = payer instanceof Keypair ? payer.publicKey : payer;
   const instructions: TransactionInstruction[] = [];
 
-  const { bondingCurve, creatorVault, tokenProgram, associatedBondingCurve, feeRecipient } =
+  const { bondingCurve, creatorVault, associatedBondingCurve, feeRecipient } =
     protocolParams;
+  const creator = effectiveCreatorForTrade(protocolParams);
+  const creatorVaultAccount = (() => {
+    try {
+      return resolveCreatorVaultForIx(protocolParams, outputMint);
+    } catch {
+      return creatorVault;
+    }
+  })();
 
   // Derive bonding curve address
   const bondingCurveAddr =
@@ -318,21 +501,16 @@ export function buildPumpFunBuyInstructions(
       : bondingCurve.account;
 
   // Get token program
-  const tokenProgramId = tokenProgram || TOKEN_PROGRAM_ID;
+  const tokenProgramId = effectivePumpMintTokenProgram(outputMint, protocolParams);
 
   // Derive associated bonding curve
   const associatedBondingCurveAddr =
     associatedBondingCurve && !associatedBondingCurve.equals(PublicKey.default)
       ? associatedBondingCurve
-      : getAssociatedTokenAddressSync(outputMint, bondingCurveAddr, true, tokenProgramId);
+      : associatedTokenAddress(outputMint, bondingCurveAddr, tokenProgramId);
 
   // Derive user token account
-  const userTokenAccount = getAssociatedTokenAddressSync(
-    outputMint,
-    payerPubkey,
-    true,
-    tokenProgramId
-  );
+  const userTokenAccount = associatedTokenAddress(outputMint, payerPubkey, tokenProgramId);
 
   // Derive user volume accumulator
   const userVolumeAccumulator = getPumpFunUserVolumeAccumulatorPda(payerPubkey);
@@ -360,13 +538,18 @@ export function buildPumpFunBuyInstructions(
     ? Buffer.from([1, 1])
     : Buffer.from([1, 0]);
 
+  const buyTokenAmount = fixedOutputAmount
+    ? fixedOutputAmount
+    : getBuyTokenAmountFromSolAmount(inputAmount, bondingCurve, creator);
+  const maxSolCost = calculateWithSlippageBuy(inputAmount, slippageBasisPoints);
+
   // Build instruction data
   let data: Buffer;
   if (useExactSolAmount) {
     // buy_exact_sol_in(spendable_sol_in: u64, min_tokens_out: u64, track_volume)
     const minTokensOut = fixedOutputAmount
       ? fixedOutputAmount
-      : calculateWithSlippageSell(inputAmount, slippageBasisPoints);
+      : calculateWithSlippageSell(buyTokenAmount, slippageBasisPoints);
     data = Buffer.alloc(26);
     PUMPFUN_BUY_EXACT_SOL_IN_DISCRIMINATOR.copy(data, 0);
     data.writeBigUInt64LE(inputAmount, 8);
@@ -374,10 +557,9 @@ export function buildPumpFunBuyInstructions(
     trackVolume.copy(data, 24);
   } else {
     // buy(token_amount: u64, max_sol_cost: u64, track_volume)
-    const maxSolCost = calculateWithSlippageBuy(inputAmount, slippageBasisPoints);
     data = Buffer.alloc(26);
     PUMPFUN_BUY_DISCRIMINATOR.copy(data, 0);
-    data.writeBigUInt64LE(inputAmount, 8);
+    data.writeBigUInt64LE(buyTokenAmount, 8);
     data.writeBigUInt64LE(maxSolCost, 16);
     trackVolume.copy(data, 24);
   }
@@ -393,7 +575,7 @@ export function buildPumpFunBuyInstructions(
     { pubkey: payerPubkey, isSigner: true, isWritable: true },
     { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
     { pubkey: tokenProgramId, isSigner: false, isWritable: false },
-    { pubkey: creatorVault, isSigner: false, isWritable: true },
+    { pubkey: creatorVaultAccount, isSigner: false, isWritable: true },
     { pubkey: PUMPFUN_EVENT_AUTHORITY, isSigner: false, isWritable: false },
     { pubkey: PUMPFUN_PROGRAM_ID, isSigner: false, isWritable: false },
     { pubkey: PUMPFUN_GLOBAL_VOLUME_ACCUMULATOR, isSigner: false, isWritable: true },
@@ -425,12 +607,22 @@ export function buildPumpFunSellInstructions(
   const {
     payer,
     inputMint,
-    inputAmount,
-    slippageBasisPoints = BigInt(1000),
-    fixedOutputAmount,
-    closeInputMintAta = false,
-    protocolParams,
-  } = params;
+	  inputAmount,
+	  slippageBasisPoints = BigInt(1000),
+	  fixedOutputAmount,
+	  createOutputMintAta = false,
+	  closeInputMintAta = false,
+	  protocolParams,
+	  usePumpFunV2 = false,
+	} = params;
+
+	if (usePumpFunV2 || protocolParams.useV2Ix || isUsablePubkey(protocolParams.quoteMint)) {
+	  return buildPumpFunSellV2Instructions({
+	    ...params,
+	    createOutputMintAta,
+	    usePumpFunV2: true,
+	  });
+	}
 
   if (inputAmount === BigInt(0)) {
     throw new Error("Amount cannot be zero");
@@ -440,13 +632,20 @@ export function buildPumpFunSellInstructions(
   const instructions: TransactionInstruction[] = [];
 
   const {
-    bondingCurve,
-    creatorVault,
-    tokenProgram,
-    associatedBondingCurve,
-    closeTokenAccountWhenSell,
-    feeRecipient,
-  } = protocolParams;
+	  bondingCurve,
+	  creatorVault,
+	  associatedBondingCurve,
+	  closeTokenAccountWhenSell,
+	  feeRecipient,
+	} = protocolParams;
+  const creator = effectiveCreatorForTrade(protocolParams);
+  const creatorVaultAccount = (() => {
+    try {
+      return resolveCreatorVaultForIx(protocolParams, inputMint);
+    } catch {
+      return creatorVault;
+    }
+  })();
 
   // Derive bonding curve address
   const bondingCurveAddr =
@@ -455,21 +654,16 @@ export function buildPumpFunSellInstructions(
       : bondingCurve.account;
 
   // Get token program
-  const tokenProgramId = tokenProgram || TOKEN_PROGRAM_ID;
+  const tokenProgramId = effectivePumpMintTokenProgram(inputMint, protocolParams);
 
   // Derive associated bonding curve
   const associatedBondingCurveAddr =
     associatedBondingCurve && !associatedBondingCurve.equals(PublicKey.default)
       ? associatedBondingCurve
-      : getAssociatedTokenAddressSync(inputMint, bondingCurveAddr, true, tokenProgramId);
+      : associatedTokenAddress(inputMint, bondingCurveAddr, tokenProgramId);
 
   // Derive user token account
-  const userTokenAccount = getAssociatedTokenAddressSync(
-    inputMint,
-    payerPubkey,
-    true,
-    tokenProgramId
-  );
+  const userTokenAccount = associatedTokenAddress(inputMint, payerPubkey, tokenProgramId);
 
   const feeRecipientPk = pumpFunFeeRecipientMeta(feeRecipient, bondingCurve.isMayhemMode);
 
@@ -477,9 +671,10 @@ export function buildPumpFunSellInstructions(
   const bondingCurveV2 = getBondingCurveV2Pda(inputMint);
 
   // Build instruction data (sell: token_amount, min_sol_output)
+  const expectedSolOutput = getSellSolAmountFromTokenAmount(inputAmount, bondingCurve, creator);
   const minSolOutput = fixedOutputAmount
     ? fixedOutputAmount
-    : calculateWithSlippageSell(inputAmount, slippageBasisPoints);
+    : calculateWithSlippageSell(expectedSolOutput, slippageBasisPoints);
   const data = Buffer.alloc(24);
   PUMPFUN_SELL_DISCRIMINATOR.copy(data, 0);
   data.writeBigUInt64LE(inputAmount, 8);
@@ -495,7 +690,7 @@ export function buildPumpFunSellInstructions(
     { pubkey: userTokenAccount, isSigner: false, isWritable: true },
     { pubkey: payerPubkey, isSigner: true, isWritable: true },
     { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-    { pubkey: creatorVault, isSigner: false, isWritable: true },
+    { pubkey: creatorVaultAccount, isSigner: false, isWritable: true },
     { pubkey: tokenProgramId, isSigner: false, isWritable: false },
     { pubkey: PUMPFUN_EVENT_AUTHORITY, isSigner: false, isWritable: false },
     { pubkey: PUMPFUN_PROGRAM_ID, isSigner: false, isWritable: false },
@@ -530,6 +725,324 @@ export function buildPumpFunSellInstructions(
         payerPubkey,
         [],
         tokenProgramId
+      )
+    );
+  }
+
+  return instructions;
+}
+
+/**
+ * Build PumpFun V2 buy instructions (`buy_v2` / `buy_exact_quote_in_v2`).
+ */
+export function buildPumpFunBuyV2Instructions(
+  params: PumpFunBuildBuyParams
+): TransactionInstruction[] {
+  const {
+    payer,
+    outputMint,
+    inputAmount,
+    slippageBasisPoints = BigInt(1000),
+    fixedOutputAmount,
+    createOutputMintAta = true,
+    createInputMintAta = false,
+    protocolParams,
+    useExactSolAmount = true,
+  } = params;
+
+  if (inputAmount === 0n) {
+    throw new Error("Amount cannot be zero");
+  }
+
+  const payerPubkey = payer instanceof Keypair ? payer.publicKey : payer;
+  const instructions: TransactionInstruction[] = [];
+  const bondingCurve = protocolParams.bondingCurve;
+  const creator = effectiveCreatorForTrade(protocolParams);
+  const creatorVaultAccount = resolveCreatorVaultForIx(protocolParams, outputMint);
+
+  const bondingCurveAddr =
+    bondingCurve.account.equals(PublicKey.default) || !bondingCurve.account
+      ? getBondingCurvePda(outputMint)
+      : bondingCurve.account;
+
+  const baseTokenProgram = effectivePumpMintTokenProgram(outputMint, protocolParams);
+  const quoteMint = effectiveQuoteMint(protocolParams);
+  const quoteTokenProgram = TOKEN_PROGRAM_ID;
+
+  const associatedBaseBondingCurve = associatedTokenAddress(
+    outputMint,
+    bondingCurveAddr,
+    baseTokenProgram
+  );
+  const associatedBaseUser = associatedTokenAddress(outputMint, payerPubkey, baseTokenProgram);
+
+  const feeRecipientPk = pumpFunFeeRecipientMeta(
+    protocolParams.feeRecipient,
+    bondingCurve.isMayhemMode
+  );
+  const buybackFeeRecipient = getPumpFunBuybackFeeRecipientRandom();
+
+  const associatedQuoteFeeRecipient = associatedTokenAddress(
+    quoteMint,
+    feeRecipientPk,
+    quoteTokenProgram
+  );
+  const associatedQuoteBuybackFeeRecipient = associatedTokenAddress(
+    quoteMint,
+    buybackFeeRecipient,
+    quoteTokenProgram
+  );
+  const associatedQuoteBondingCurve = associatedTokenAddress(
+    quoteMint,
+    bondingCurveAddr,
+    quoteTokenProgram
+  );
+  const associatedQuoteUser = associatedTokenAddress(quoteMint, payerPubkey, quoteTokenProgram);
+  const associatedCreatorVault = associatedTokenAddress(
+    quoteMint,
+    creatorVaultAccount,
+    quoteTokenProgram
+  );
+  const sharingConfig = getPumpFunFeeSharingConfigPda(outputMint);
+  const userVolumeAccumulator = getPumpFunUserVolumeAccumulatorPda(payerPubkey);
+  const associatedUserVolumeAccumulator = associatedTokenAddress(
+    quoteMint,
+    userVolumeAccumulator,
+    quoteTokenProgram
+  );
+
+  if (createOutputMintAta) {
+    instructions.push(
+      createAssociatedTokenAccountIdempotentInstruction(
+        payerPubkey,
+        associatedBaseUser,
+        payerPubkey,
+        outputMint,
+        baseTokenProgram,
+        SPL_ASSOCIATED_TOKEN_PROGRAM_ID
+      )
+    );
+  }
+
+  if (createInputMintAta) {
+    instructions.push(
+      createAssociatedTokenAccountIdempotentInstruction(
+        payerPubkey,
+        associatedQuoteUser,
+        payerPubkey,
+        quoteMint,
+        quoteTokenProgram,
+        SPL_ASSOCIATED_TOKEN_PROGRAM_ID
+      )
+    );
+  }
+
+  const buyTokenAmount = fixedOutputAmount
+    ? fixedOutputAmount
+    : getBuyTokenAmountFromSolAmount(inputAmount, bondingCurve, creator);
+  const maxSolCost = calculateWithSlippageBuy(inputAmount, slippageBasisPoints);
+  let data: Buffer;
+  if (useExactSolAmount) {
+    const minTokensOut = fixedOutputAmount
+      ? fixedOutputAmount
+      : calculateWithSlippageSell(buyTokenAmount, slippageBasisPoints);
+    data = Buffer.alloc(24);
+    PUMPFUN_BUY_EXACT_QUOTE_IN_V2_DISCRIMINATOR.copy(data, 0);
+    data.writeBigUInt64LE(inputAmount, 8);
+    data.writeBigUInt64LE(minTokensOut, 16);
+  } else {
+    data = Buffer.alloc(24);
+    PUMPFUN_BUY_V2_DISCRIMINATOR.copy(data, 0);
+    data.writeBigUInt64LE(buyTokenAmount, 8);
+    data.writeBigUInt64LE(maxSolCost, 16);
+  }
+
+  const keys: AccountMeta[] = [
+    { pubkey: PUMPFUN_GLOBAL_ACCOUNT, isSigner: false, isWritable: false },
+    { pubkey: outputMint, isSigner: false, isWritable: false },
+    { pubkey: quoteMint, isSigner: false, isWritable: false },
+    { pubkey: baseTokenProgram, isSigner: false, isWritable: false },
+    { pubkey: quoteTokenProgram, isSigner: false, isWritable: false },
+    { pubkey: SPL_ASSOCIATED_TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+    { pubkey: feeRecipientPk, isSigner: false, isWritable: true },
+    { pubkey: associatedQuoteFeeRecipient, isSigner: false, isWritable: true },
+    { pubkey: buybackFeeRecipient, isSigner: false, isWritable: false },
+    { pubkey: associatedQuoteBuybackFeeRecipient, isSigner: false, isWritable: true },
+    { pubkey: bondingCurveAddr, isSigner: false, isWritable: true },
+    { pubkey: associatedBaseBondingCurve, isSigner: false, isWritable: true },
+    { pubkey: associatedQuoteBondingCurve, isSigner: false, isWritable: true },
+    { pubkey: payerPubkey, isSigner: true, isWritable: true },
+    { pubkey: associatedBaseUser, isSigner: false, isWritable: true },
+    { pubkey: associatedQuoteUser, isSigner: false, isWritable: true },
+    { pubkey: creatorVaultAccount, isSigner: false, isWritable: true },
+    { pubkey: associatedCreatorVault, isSigner: false, isWritable: true },
+    { pubkey: sharingConfig, isSigner: false, isWritable: false },
+    { pubkey: PUMPFUN_GLOBAL_VOLUME_ACCUMULATOR, isSigner: false, isWritable: true },
+    { pubkey: userVolumeAccumulator, isSigner: false, isWritable: true },
+    { pubkey: associatedUserVolumeAccumulator, isSigner: false, isWritable: true },
+    { pubkey: PUMPFUN_FEE_CONFIG, isSigner: false, isWritable: false },
+    { pubkey: PUMPFUN_FEE_PROGRAM, isSigner: false, isWritable: false },
+    { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    { pubkey: PUMPFUN_EVENT_AUTHORITY, isSigner: false, isWritable: false },
+    { pubkey: PUMPFUN_PROGRAM_ID, isSigner: false, isWritable: false },
+  ];
+
+  instructions.push(
+    new TransactionInstruction({
+      keys,
+      programId: PUMPFUN_PROGRAM_ID,
+      data,
+    })
+  );
+
+  return instructions;
+}
+
+/**
+ * Build PumpFun V2 sell instructions (`sell_v2`).
+ */
+export function buildPumpFunSellV2Instructions(
+  params: PumpFunBuildSellParams
+): TransactionInstruction[] {
+  const {
+    payer,
+    inputMint,
+    inputAmount,
+    slippageBasisPoints = BigInt(1000),
+    fixedOutputAmount,
+    createOutputMintAta = false,
+    closeInputMintAta = false,
+    protocolParams,
+  } = params;
+
+  if (inputAmount === 0n) {
+    throw new Error("Amount cannot be zero");
+  }
+
+  const payerPubkey = payer instanceof Keypair ? payer.publicKey : payer;
+  const instructions: TransactionInstruction[] = [];
+  const bondingCurve = protocolParams.bondingCurve;
+  const creator = effectiveCreatorForTrade(protocolParams);
+  const creatorVaultAccount = resolveCreatorVaultForSellV2(protocolParams, inputMint);
+
+  const bondingCurveAddr =
+    bondingCurve.account.equals(PublicKey.default) || !bondingCurve.account
+      ? getBondingCurvePda(inputMint)
+      : bondingCurve.account;
+
+  const baseTokenProgram = effectivePumpMintTokenProgram(inputMint, protocolParams);
+  const quoteMint = effectiveQuoteMint(protocolParams);
+  const quoteTokenProgram = TOKEN_PROGRAM_ID;
+
+  const associatedBaseBondingCurve = associatedTokenAddress(
+    inputMint,
+    bondingCurveAddr,
+    baseTokenProgram
+  );
+  const associatedBaseUser = associatedTokenAddress(inputMint, payerPubkey, baseTokenProgram);
+
+  const feeRecipientPk = pumpFunFeeRecipientMeta(
+    protocolParams.feeRecipient,
+    bondingCurve.isMayhemMode
+  );
+  const buybackFeeRecipient = getPumpFunBuybackFeeRecipientRandom();
+
+  const associatedQuoteFeeRecipient = associatedTokenAddress(
+    quoteMint,
+    feeRecipientPk,
+    quoteTokenProgram
+  );
+  const associatedQuoteBuybackFeeRecipient = associatedTokenAddress(
+    quoteMint,
+    buybackFeeRecipient,
+    quoteTokenProgram
+  );
+  const associatedQuoteBondingCurve = associatedTokenAddress(
+    quoteMint,
+    bondingCurveAddr,
+    quoteTokenProgram
+  );
+  const associatedQuoteUser = associatedTokenAddress(quoteMint, payerPubkey, quoteTokenProgram);
+  const associatedCreatorVault = associatedTokenAddress(
+    quoteMint,
+    creatorVaultAccount,
+    quoteTokenProgram
+  );
+  const sharingConfig = getPumpFunFeeSharingConfigPda(inputMint);
+  const userVolumeAccumulator = getPumpFunUserVolumeAccumulatorPda(payerPubkey);
+  const associatedUserVolumeAccumulator = associatedTokenAddress(
+    quoteMint,
+    userVolumeAccumulator,
+    quoteTokenProgram
+  );
+
+  if (createOutputMintAta) {
+    instructions.push(
+      createAssociatedTokenAccountIdempotentInstruction(
+        payerPubkey,
+        associatedQuoteUser,
+        payerPubkey,
+        quoteMint,
+        quoteTokenProgram,
+        SPL_ASSOCIATED_TOKEN_PROGRAM_ID
+      )
+    );
+  }
+
+  const expectedSolOutput = getSellSolAmountFromTokenAmount(inputAmount, bondingCurve, creator);
+  const minSolOutput = fixedOutputAmount
+    ? fixedOutputAmount
+    : calculateWithSlippageSell(expectedSolOutput, slippageBasisPoints);
+  const data = Buffer.alloc(24);
+  PUMPFUN_SELL_V2_DISCRIMINATOR.copy(data, 0);
+  data.writeBigUInt64LE(inputAmount, 8);
+  data.writeBigUInt64LE(minSolOutput, 16);
+
+  const keys: AccountMeta[] = [
+    { pubkey: PUMPFUN_GLOBAL_ACCOUNT, isSigner: false, isWritable: false },
+    { pubkey: inputMint, isSigner: false, isWritable: false },
+    { pubkey: quoteMint, isSigner: false, isWritable: false },
+    { pubkey: baseTokenProgram, isSigner: false, isWritable: false },
+    { pubkey: quoteTokenProgram, isSigner: false, isWritable: false },
+    { pubkey: SPL_ASSOCIATED_TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+    { pubkey: feeRecipientPk, isSigner: false, isWritable: true },
+    { pubkey: associatedQuoteFeeRecipient, isSigner: false, isWritable: true },
+    { pubkey: buybackFeeRecipient, isSigner: false, isWritable: false },
+    { pubkey: associatedQuoteBuybackFeeRecipient, isSigner: false, isWritable: true },
+    { pubkey: bondingCurveAddr, isSigner: false, isWritable: true },
+    { pubkey: associatedBaseBondingCurve, isSigner: false, isWritable: true },
+    { pubkey: associatedQuoteBondingCurve, isSigner: false, isWritable: true },
+    { pubkey: payerPubkey, isSigner: true, isWritable: true },
+    { pubkey: associatedBaseUser, isSigner: false, isWritable: true },
+    { pubkey: associatedQuoteUser, isSigner: false, isWritable: true },
+    { pubkey: creatorVaultAccount, isSigner: false, isWritable: true },
+    { pubkey: associatedCreatorVault, isSigner: false, isWritable: true },
+    { pubkey: sharingConfig, isSigner: false, isWritable: false },
+    { pubkey: userVolumeAccumulator, isSigner: false, isWritable: true },
+    { pubkey: associatedUserVolumeAccumulator, isSigner: false, isWritable: true },
+    { pubkey: PUMPFUN_FEE_CONFIG, isSigner: false, isWritable: false },
+    { pubkey: PUMPFUN_FEE_PROGRAM, isSigner: false, isWritable: false },
+    { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    { pubkey: PUMPFUN_EVENT_AUTHORITY, isSigner: false, isWritable: false },
+    { pubkey: PUMPFUN_PROGRAM_ID, isSigner: false, isWritable: false },
+  ];
+
+  instructions.push(
+    new TransactionInstruction({
+      keys,
+      programId: PUMPFUN_PROGRAM_ID,
+      data,
+    })
+  );
+
+  if (closeInputMintAta || protocolParams.closeTokenAccountWhenSell) {
+    instructions.push(
+      createCloseAccountInstruction(
+        associatedBaseUser,
+        payerPubkey,
+        payerPubkey,
+        [],
+        baseTokenProgram
       )
     );
   }
@@ -619,6 +1132,7 @@ export async function fetchBondingCurveAccount(
       virtualTokenReserves,
       virtualSolReserves,
       realTokenReserves,
+      creator,
       isMayhemMode,
       isCashbackCoin,
     },

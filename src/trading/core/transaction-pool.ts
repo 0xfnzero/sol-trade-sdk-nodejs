@@ -379,7 +379,7 @@ export class TransactionPool {
     // Try to remove from queue
     const index = this.queue.findIndex(tx => tx.id === id);
     if (index !== -1) {
-      const tx = this.queue.splice(index, 1)[0];
+      const tx = this.queue.splice(index, 1)[0]!;
       tx.status = TransactionStatus.Cancelled;
       this.completed.set(id, tx);
       this.notifyStatusChange(tx);

@@ -432,12 +432,12 @@ export class AsyncTradeExecutor {
 
     const results = await Promise.allSettled(promises);
     const successes = results.filter(
-      r => r.status === 'fulfilled' && r.value.success
+      (r): r is PromiseFulfilledResult<ExecutionResult> => r.status === 'fulfilled' && r.value.success
     );
 
     if (successes.length >= minSuccesses) {
       // Return the fastest successful result
-      const firstSuccess = successes[0];
+      const firstSuccess = successes[0]!;
       if (firstSuccess.status === 'fulfilled') {
         return {
           ...firstSuccess.value,

@@ -46,6 +46,14 @@ interface SimulateResult {
   };
 }
 
+interface JsonRpcResponse<T> {
+  result?: T;
+  error?: {
+    code?: number;
+    message?: string;
+  };
+}
+
 // ===== RPC Error =====
 
 export class RPCError extends Error {
@@ -101,7 +109,7 @@ export class AsyncRPCClient {
 
       clearTimeout(timeout);
 
-      const data = await response.json();
+      const data = await response.json() as JsonRpcResponse<T>;
 
       if (data.error) {
         this.errorCount++;

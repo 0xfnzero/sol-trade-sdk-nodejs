@@ -406,7 +406,7 @@ export class LatencyMonitor {
 
     const sorted = [...this.measurements].sort((a, b) => a - b);
     const index = Math.floor((percentile / 100) * sorted.length);
-    return sorted[Math.min(index, sorted.length - 1)];
+    return sorted[Math.min(index, sorted.length - 1)] ?? 0;
   }
 
   /**

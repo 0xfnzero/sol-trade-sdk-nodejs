@@ -3,6 +3,9 @@
  * Provides high-precision timing functions and latency measurement tools.
  */
 
+import { PerformanceObserver } from 'perf_hooks';
+import type { PerformanceEntry } from 'perf_hooks';
+
 // ===== Time Unit Conversion Functions =====
 
 const NS_PER_MS = BigInt(1_000_000);
@@ -288,7 +291,7 @@ export class LatencyHistogram {
     const bucketIndex = this.buckets.findIndex(b => latency <= BigInt(b));
     const index = bucketIndex === -1 ? this.buckets.length : bucketIndex;
     if (index >= 0 && index < this.counts.length) {
-      this.counts[index]++;
+      this.counts[index]!++;
     }
   }
 
@@ -464,10 +467,10 @@ export function timeSync<T>(
  * Create a performance observer for monitoring
  */
 export function createPerformanceObserver(
-  callback: (entry: globalThis.PerformanceEntry) => void
-): globalThis.PerformanceObserver | null {
+  callback: (entry: PerformanceEntry) => void
+): PerformanceObserver | null {
   if (typeof PerformanceObserver !== 'undefined') {
-    const observer = new globalThis.PerformanceObserver((list) => {
+    const observer = new PerformanceObserver((list) => {
       for (const entry of list.getEntries()) {
         callback(entry);
       }

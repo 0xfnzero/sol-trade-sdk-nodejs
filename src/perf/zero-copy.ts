@@ -330,8 +330,8 @@ export class BufferPool {
  */
 export class ZeroCopySerializer {
   private buffer: ZeroCopyBuffer;
-  private textEncoder: TextEncoder;
-  private textDecoder: TextDecoder;
+  private textEncoder: InstanceType<typeof TextEncoder>;
+  private textDecoder: InstanceType<typeof TextDecoder>;
 
   constructor(initialSize: number = 4096) {
     this.buffer = new ZeroCopyBuffer(initialSize);
