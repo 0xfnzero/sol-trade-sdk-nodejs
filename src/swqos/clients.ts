@@ -3,7 +3,7 @@
  * Implements various SWQOS (Solana Write Queue Operating System) providers.
  */
 
-import { SwqosType, SwqosRegion, TradeType } from '../index';
+import { AstralaneTransport, SwqosTransport, SwqosType, SwqosRegion, TradeType } from '../index';
 import { TradeError } from '../sdk-errors';
 
 // ===== Utility =====
@@ -204,11 +204,12 @@ export const JITO_ENDPOINTS: Record<SwqosRegion, string> = {
   [SwqosRegion.NewYork]: 'https://ny.mainnet.block-engine.jito.wtf',
   [SwqosRegion.Frankfurt]: 'https://frankfurt.mainnet.block-engine.jito.wtf',
   [SwqosRegion.Amsterdam]: 'https://amsterdam.mainnet.block-engine.jito.wtf',
+  [SwqosRegion.Dublin]: 'https://dublin.mainnet.block-engine.jito.wtf',
   [SwqosRegion.SLC]: 'https://slc.mainnet.block-engine.jito.wtf',
   [SwqosRegion.Tokyo]: 'https://tokyo.mainnet.block-engine.jito.wtf',
   [SwqosRegion.London]: 'https://london.mainnet.block-engine.jito.wtf',
-  [SwqosRegion.LosAngeles]: 'https://ny.mainnet.block-engine.jito.wtf',
-  [SwqosRegion.Singapore]: 'https://amsterdam.mainnet.block-engine.jito.wtf',
+  [SwqosRegion.LosAngeles]: 'https://slc.mainnet.block-engine.jito.wtf',
+  [SwqosRegion.Singapore]: 'https://singapore.mainnet.block-engine.jito.wtf',
   [SwqosRegion.Default]: 'https://mainnet.block-engine.jito.wtf',
 };
 
@@ -216,6 +217,7 @@ export const BLOXROUTE_ENDPOINTS: Record<SwqosRegion, string> = {
   [SwqosRegion.NewYork]: 'https://ny.solana.dex.blxrbdn.com',
   [SwqosRegion.Frankfurt]: 'https://germany.solana.dex.blxrbdn.com',
   [SwqosRegion.Amsterdam]: 'https://amsterdam.solana.dex.blxrbdn.com',
+  [SwqosRegion.Dublin]: 'https://uk.solana.dex.blxrbdn.com',
   [SwqosRegion.SLC]: 'https://ny.solana.dex.blxrbdn.com',
   [SwqosRegion.Tokyo]: 'https://tokyo.solana.dex.blxrbdn.com',
   [SwqosRegion.London]: 'https://uk.solana.dex.blxrbdn.com',
@@ -228,11 +230,12 @@ export const ZERO_SLOT_ENDPOINTS: Record<SwqosRegion, string> = {
   [SwqosRegion.NewYork]: 'http://ny.0slot.trade',
   [SwqosRegion.Frankfurt]: 'http://de2.0slot.trade',
   [SwqosRegion.Amsterdam]: 'http://ams.0slot.trade',
-  [SwqosRegion.SLC]: 'http://ny.0slot.trade',
+  [SwqosRegion.Dublin]: 'http://ams.0slot.trade',
+  [SwqosRegion.SLC]: 'http://la.0slot.trade',
   [SwqosRegion.Tokyo]: 'http://jp.0slot.trade',
   [SwqosRegion.London]: 'http://ams.0slot.trade',
   [SwqosRegion.LosAngeles]: 'http://la.0slot.trade',
-  [SwqosRegion.Singapore]: 'http://de2.0slot.trade',
+  [SwqosRegion.Singapore]: 'http://jp.0slot.trade',
   [SwqosRegion.Default]: 'http://de2.0slot.trade',
 };
 
@@ -240,11 +243,12 @@ export const TEMPORAL_ENDPOINTS: Record<SwqosRegion, string> = {
   [SwqosRegion.NewYork]: 'http://ewr1.nozomi.temporal.xyz',
   [SwqosRegion.Frankfurt]: 'http://fra2.nozomi.temporal.xyz',
   [SwqosRegion.Amsterdam]: 'http://ams1.nozomi.temporal.xyz',
-  [SwqosRegion.SLC]: 'http://ewr1.nozomi.temporal.xyz',
+  [SwqosRegion.Dublin]: 'http://lon1.nozomi.temporal.xyz',
+  [SwqosRegion.SLC]: 'http://lax1.nozomi.temporal.xyz',
   [SwqosRegion.Tokyo]: 'http://tyo1.nozomi.temporal.xyz',
-  [SwqosRegion.London]: 'http://sgp1.nozomi.temporal.xyz',
-  [SwqosRegion.LosAngeles]: 'http://pit1.nozomi.temporal.xyz',
-  [SwqosRegion.Singapore]: 'http://fra2.nozomi.temporal.xyz',
+  [SwqosRegion.London]: 'http://lon1.nozomi.temporal.xyz',
+  [SwqosRegion.LosAngeles]: 'http://lax1.nozomi.temporal.xyz',
+  [SwqosRegion.Singapore]: 'http://sgp1.nozomi.temporal.xyz',
   [SwqosRegion.Default]: 'http://fra2.nozomi.temporal.xyz',
 };
 
@@ -252,22 +256,24 @@ export const FLASH_BLOCK_ENDPOINTS: Record<SwqosRegion, string> = {
   [SwqosRegion.NewYork]: 'http://ny.flashblock.trade',
   [SwqosRegion.Frankfurt]: 'http://fra.flashblock.trade',
   [SwqosRegion.Amsterdam]: 'http://ams.flashblock.trade',
+  [SwqosRegion.Dublin]: 'http://london.flashblock.trade',
   [SwqosRegion.SLC]: 'http://slc.flashblock.trade',
-  [SwqosRegion.Tokyo]: 'http://singapore.flashblock.trade',
+  [SwqosRegion.Tokyo]: 'http://tokyo.flashblock.trade',
   [SwqosRegion.London]: 'http://london.flashblock.trade',
-  [SwqosRegion.LosAngeles]: 'http://ny.flashblock.trade',
+  [SwqosRegion.LosAngeles]: 'http://slc.flashblock.trade',
   [SwqosRegion.Singapore]: 'http://singapore.flashblock.trade',
-  [SwqosRegion.Default]: 'http://ny.flashblock.trade',
+  [SwqosRegion.Default]: 'http://fra.flashblock.trade',
 };
 
 export const HELIUS_ENDPOINTS: Record<SwqosRegion, string> = {
   [SwqosRegion.NewYork]: 'http://ewr-sender.helius-rpc.com/fast',
   [SwqosRegion.Frankfurt]: 'http://fra-sender.helius-rpc.com/fast',
   [SwqosRegion.Amsterdam]: 'http://ams-sender.helius-rpc.com/fast',
+  [SwqosRegion.Dublin]: 'http://lon-sender.helius-rpc.com/fast',
   [SwqosRegion.SLC]: 'http://slc-sender.helius-rpc.com/fast',
   [SwqosRegion.Tokyo]: 'http://tyo-sender.helius-rpc.com/fast',
   [SwqosRegion.London]: 'http://lon-sender.helius-rpc.com/fast',
-  [SwqosRegion.LosAngeles]: 'http://sg-sender.helius-rpc.com/fast',
+  [SwqosRegion.LosAngeles]: 'http://slc-sender.helius-rpc.com/fast',
   [SwqosRegion.Singapore]: 'http://sg-sender.helius-rpc.com/fast',
   [SwqosRegion.Default]: 'https://sender.helius-rpc.com/fast',
 };
@@ -276,6 +282,7 @@ export const NODE1_ENDPOINTS: Record<SwqosRegion, string> = {
   [SwqosRegion.NewYork]: 'http://ny.node1.me',
   [SwqosRegion.Frankfurt]: 'http://fra.node1.me',
   [SwqosRegion.Amsterdam]: 'http://ams.node1.me',
+  [SwqosRegion.Dublin]: 'http://lon.node1.me',
   [SwqosRegion.SLC]: 'http://ny.node1.me',
   [SwqosRegion.Tokyo]: 'http://tk.node1.me',
   [SwqosRegion.London]: 'http://lon.node1.me',
@@ -288,6 +295,7 @@ export const BLOCK_RAZOR_ENDPOINTS: Record<SwqosRegion, string> = {
   [SwqosRegion.NewYork]: 'http://newyork.solana.blockrazor.xyz:443/v2/sendTransaction',
   [SwqosRegion.Frankfurt]: 'http://frankfurt.solana.blockrazor.xyz:443/v2/sendTransaction',
   [SwqosRegion.Amsterdam]: 'http://amsterdam.solana.blockrazor.xyz:443/v2/sendTransaction',
+  [SwqosRegion.Dublin]: 'http://london.solana.blockrazor.xyz:443/v2/sendTransaction',
   [SwqosRegion.SLC]: 'http://newyork.solana.blockrazor.xyz:443/v2/sendTransaction',
   [SwqosRegion.Tokyo]: 'http://tokyo.solana.blockrazor.xyz:443/v2/sendTransaction',
   [SwqosRegion.London]: 'http://london.solana.blockrazor.xyz:443/v2/sendTransaction',
@@ -300,18 +308,33 @@ export const ASTRALANE_ENDPOINTS: Record<SwqosRegion, string> = {
   [SwqosRegion.NewYork]: 'http://ny.gateway.astralane.io/irisb',
   [SwqosRegion.Frankfurt]: 'http://fr.gateway.astralane.io/irisb',
   [SwqosRegion.Amsterdam]: 'http://ams.gateway.astralane.io/irisb',
+  [SwqosRegion.Dublin]: 'http://ams.gateway.astralane.io/irisb',
   [SwqosRegion.SLC]: 'http://ny.gateway.astralane.io/irisb',
   [SwqosRegion.Tokyo]: 'http://jp.gateway.astralane.io/irisb',
-  [SwqosRegion.London]: 'http://ny.gateway.astralane.io/irisb',
+  [SwqosRegion.London]: 'http://ams.gateway.astralane.io/irisb',
   [SwqosRegion.LosAngeles]: 'http://lax.gateway.astralane.io/irisb',
   [SwqosRegion.Singapore]: 'http://lim.gateway.astralane.io/irisb',
   [SwqosRegion.Default]: 'http://lim.gateway.astralane.io/irisb',
+};
+
+export const ASTRALANE_QUIC_HOSTS: Record<SwqosRegion, string> = {
+  [SwqosRegion.NewYork]: 'ny.gateway.astralane.io',
+  [SwqosRegion.Frankfurt]: 'fr.gateway.astralane.io',
+  [SwqosRegion.Amsterdam]: 'ams.gateway.astralane.io',
+  [SwqosRegion.Dublin]: 'ams.gateway.astralane.io',
+  [SwqosRegion.SLC]: 'ny.gateway.astralane.io',
+  [SwqosRegion.Tokyo]: 'jp.gateway.astralane.io',
+  [SwqosRegion.London]: 'ams.gateway.astralane.io',
+  [SwqosRegion.LosAngeles]: 'lax.gateway.astralane.io',
+  [SwqosRegion.Singapore]: 'lim.gateway.astralane.io',
+  [SwqosRegion.Default]: 'lim.gateway.astralane.io',
 };
 
 export const STELLIUM_ENDPOINTS: Record<SwqosRegion, string> = {
   [SwqosRegion.NewYork]: 'http://ewr1.flashrpc.com',
   [SwqosRegion.Frankfurt]: 'http://fra1.flashrpc.com',
   [SwqosRegion.Amsterdam]: 'http://ams1.flashrpc.com',
+  [SwqosRegion.Dublin]: 'http://lhr1.flashrpc.com',
   [SwqosRegion.SLC]: 'http://ewr1.flashrpc.com',
   [SwqosRegion.Tokyo]: 'http://tyo1.flashrpc.com',
   [SwqosRegion.London]: 'http://lhr1.flashrpc.com',
@@ -322,20 +345,22 @@ export const STELLIUM_ENDPOINTS: Record<SwqosRegion, string> = {
 
 export const NEXT_BLOCK_ENDPOINTS: Record<SwqosRegion, string> = {
   [SwqosRegion.NewYork]: 'http://ny.nextblock.io',
-  [SwqosRegion.Frankfurt]: 'http://frankfurt.nextblock.io',
-  [SwqosRegion.Amsterdam]: 'http://amsterdam.nextblock.io',
+  [SwqosRegion.Frankfurt]: 'http://fra.nextblock.io',
+  [SwqosRegion.Amsterdam]: 'http://ams.nextblock.io',
+  [SwqosRegion.Dublin]: 'http://dublin.nextblock.io',
   [SwqosRegion.SLC]: 'http://slc.nextblock.io',
   [SwqosRegion.Tokyo]: 'http://tokyo.nextblock.io',
   [SwqosRegion.London]: 'http://london.nextblock.io',
-  [SwqosRegion.LosAngeles]: 'http://singapore.nextblock.io',
-  [SwqosRegion.Singapore]: 'http://singapore.nextblock.io',
-  [SwqosRegion.Default]: 'http://frankfurt.nextblock.io',
+  [SwqosRegion.LosAngeles]: 'http://slc.nextblock.io',
+  [SwqosRegion.Singapore]: 'http://sgp.nextblock.io',
+  [SwqosRegion.Default]: 'http://fra.nextblock.io',
 };
 
 export const SOYAS_ENDPOINTS: Record<SwqosRegion, string> = {
   [SwqosRegion.NewYork]: 'nyc.landing.soyas.xyz:9000',
   [SwqosRegion.Frankfurt]: 'fra.landing.soyas.xyz:9000',
   [SwqosRegion.Amsterdam]: 'ams.landing.soyas.xyz:9000',
+  [SwqosRegion.Dublin]: 'lon.landing.soyas.xyz:9000',
   [SwqosRegion.SLC]: 'nyc.landing.soyas.xyz:9000',
   [SwqosRegion.Tokyo]: 'tyo.landing.soyas.xyz:9000',
   [SwqosRegion.London]: 'lon.landing.soyas.xyz:9000',
@@ -348,6 +373,7 @@ export const SPEEDLANDING_ENDPOINTS: Record<SwqosRegion, string> = {
   [SwqosRegion.NewYork]: 'nyc.speedlanding.trade:17778',
   [SwqosRegion.Frankfurt]: 'fra.speedlanding.trade:17778',
   [SwqosRegion.Amsterdam]: 'ams.speedlanding.trade:17778',
+  [SwqosRegion.Dublin]: 'ams.speedlanding.trade:17778',
   [SwqosRegion.SLC]: 'nyc.speedlanding.trade:17778',
   [SwqosRegion.Tokyo]: 'tyo.speedlanding.trade:17778',
   [SwqosRegion.London]: 'fra.speedlanding.trade:17778',
@@ -875,6 +901,55 @@ export class Node1Client extends BaseClient {
   }
 }
 
+export class Node1QuicClient implements SwqosClient {
+  private readonly tipAccounts = NODE1_TIP_ACCOUNTS;
+  private readonly host: string;
+  private readonly port: number;
+
+  constructor(
+    private readonly rpcUrl: string,
+    private readonly endpoint: string,
+    private readonly authToken: string,
+  ) {
+    const lastColon = endpoint.lastIndexOf(':');
+    this.host = lastColon >= 0 ? endpoint.slice(0, lastColon) : endpoint;
+    this.port = lastColon >= 0 ? parseInt(endpoint.slice(lastColon + 1), 10) : 16666;
+  }
+
+  async sendTransaction(
+    tradeType: TradeType,
+    transaction: Buffer,
+    waitConfirmation: boolean
+  ): Promise<string> {
+    await sendNode1ViaQUIC(this.host, this.port, this.authToken, new Uint8Array(transaction));
+    return '';
+  }
+
+  async sendTransactions(
+    tradeType: TradeType,
+    transactions: Buffer[],
+    waitConfirmation: boolean
+  ): Promise<string[]> {
+    const signatures: string[] = [];
+    for (const tx of transactions) {
+      signatures.push(await this.sendTransaction(tradeType, tx, waitConfirmation));
+    }
+    return signatures;
+  }
+
+  getTipAccount(): string {
+    return randomChoice(this.tipAccounts);
+  }
+
+  getSwqosType(): SwqosType {
+    return SwqosType.Node1;
+  }
+
+  minTipSol(): number {
+    return MIN_TIP_NODE1;
+  }
+}
+
 // ===== BlockRazor Client =====
 
 export class BlockRazorClient extends BaseClient {
@@ -966,6 +1041,62 @@ export class AstralaneClient extends BaseClient {
     }
 
     return result.result || result.signature || '';
+  }
+
+  getTipAccount(): string {
+    return randomChoice(this.tipAccounts);
+  }
+
+  getSwqosType(): SwqosType {
+    return SwqosType.Astralane;
+  }
+
+  minTipSol(): number {
+    return MIN_TIP_ASTRALANE;
+  }
+}
+
+export class AstralaneQuicClient implements SwqosClient {
+  private readonly tipAccounts = ASTRALANE_TIP_ACCOUNTS;
+  private readonly host: string;
+  private readonly port: number;
+
+  constructor(
+    private readonly rpcUrl: string,
+    private readonly endpoint: string,
+    private readonly authToken: string,
+  ) {
+    const lastColon = endpoint.lastIndexOf(':');
+    this.host = lastColon >= 0 ? endpoint.slice(0, lastColon) : endpoint;
+    this.port = lastColon >= 0 ? parseInt(endpoint.slice(lastColon + 1), 10) : 7000;
+  }
+
+  async sendTransaction(
+    tradeType: TradeType,
+    transaction: Buffer,
+    waitConfirmation: boolean
+  ): Promise<string> {
+    if (transaction.length > 1232) {
+      throw new TradeError(400, `Astralane QUIC transaction too large: ${transaction.length} > 1232`);
+    }
+    await sendViaQUIC(this.host, this.port, 'astralane', new Uint8Array(transaction), {
+      alpn: 'astralane-tpu',
+      commonName: this.authToken,
+      algorithm: 'ecdsa',
+    });
+    return '';
+  }
+
+  async sendTransactions(
+    tradeType: TradeType,
+    transactions: Buffer[],
+    waitConfirmation: boolean
+  ): Promise<string[]> {
+    const signatures: string[] = [];
+    for (const tx of transactions) {
+      signatures.push(await this.sendTransaction(tradeType, tx, waitConfirmation));
+    }
+    return signatures;
   }
 
   getTipAccount(): string {
@@ -1215,6 +1346,11 @@ async function sendViaQUIC(
   port: number,
   serverName: string,
   txBytes: Uint8Array,
+  options: {
+    alpn?: string;
+    commonName?: string;
+    algorithm?: string;
+  } = {},
 ): Promise<void> {
   // Dynamic imports so the file compiles/runs even without the optional packages
   let QUICClient: any;
@@ -1231,8 +1367,8 @@ async function sendViaQUIC(
 
   // Generate ephemeral self-signed Ed25519 certificate (no server verification)
   const pems = selfsigned.generate(
-    [{ name: 'commonName', value: 'Solana node' }],
-    { days: 36500, algorithm: 'ed25519' },
+    [{ name: 'commonName', value: options.commonName ?? 'Solana node' }],
+    { days: 36500, algorithm: options.algorithm ?? 'ed25519' },
   );
 
   const client = await QUICClient.createQUICClient({
@@ -1242,7 +1378,7 @@ async function sendViaQUIC(
       key: pems.private,
       cert: pems.cert,
       verifyPeer: false,
-      applicationProtos: ['solana-tpu'],
+      applicationProtos: [options.alpn ?? 'solana-tpu'],
       tlsVersion: 'tlsv13',
     },
     logger: undefined,
@@ -1255,6 +1391,109 @@ async function sendViaQUIC(
     await writer.close();
     // Brief delay to allow the stack to flush before closing
     await new Promise(resolve => setTimeout(resolve, 50));
+  } finally {
+    await client.destroy();
+  }
+}
+
+function hostPortFromHttp(endpoint: string, port: number): { host: string; port: number } {
+  try {
+    const url = new URL(endpoint);
+    return { host: url.hostname, port };
+  } catch {
+    const withoutScheme = endpoint.replace(/^https?:\/\//, '').split('/')[0]!;
+    const lastColon = withoutScheme.lastIndexOf(':');
+    const host = lastColon >= 0 ? withoutScheme.slice(0, lastColon) : withoutScheme;
+    return { host, port };
+  }
+}
+
+function uuidToBytes(apiKey: string): Uint8Array {
+  const hex = apiKey.replace(/-/g, '');
+  if (!/^[0-9a-fA-F]{32}$/.test(hex)) {
+    throw new TradeError(400, 'Node1 QUIC API key must be a UUID');
+  }
+  return new Uint8Array(Buffer.from(hex, 'hex'));
+}
+
+async function readQuicStream(stream: any): Promise<Uint8Array> {
+  const reader = stream.readable.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (value) {
+        const chunk = new Uint8Array(value);
+        chunks.push(chunk);
+        total += chunk.length;
+      }
+    }
+  } finally {
+    reader.releaseLock?.();
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return out;
+}
+
+async function sendNode1ViaQUIC(
+  host: string,
+  port: number,
+  apiKey: string,
+  txBytes: Uint8Array,
+): Promise<void> {
+  let QUICClient: any;
+  try {
+    ({ QUICClient } = await import('@matrixai/quic'));
+  } catch {
+    throw new TradeError(501, 'QUIC not available: run "npm install @matrixai/quic" to enable Node1 QUIC.');
+  }
+  if (txBytes.length > 1232) {
+    throw new TradeError(400, `Node1 QUIC transaction too large: ${txBytes.length} > 1232`);
+  }
+
+  const client = await QUICClient.createQUICClient({
+    host,
+    port,
+    config: {
+      verifyPeer: false,
+      applicationProtos: ['h3'],
+      tlsVersion: 'tlsv13',
+      serverName: host,
+    },
+    logger: undefined,
+  });
+
+  try {
+    const authStream = client.connection.newStream('bi');
+    const authWriter = authStream.writable.getWriter();
+    await authWriter.write(uuidToBytes(apiKey));
+    await authWriter.close();
+    const authReply = await readQuicStream(authStream);
+    if (authReply[0] !== 0) {
+      throw new TradeError(401, `Node1 QUIC auth rejected: ${authReply[0] ?? -1}`);
+    }
+
+    const txStream = client.connection.newStream('bi');
+    const txWriter = txStream.writable.getWriter();
+    await txWriter.write(txBytes);
+    await txWriter.close();
+    const response = await readQuicStream(txStream);
+    if (response.length < 6) {
+      throw new TradeError(500, 'Node1 QUIC response too short');
+    }
+    const status = (response[0]! << 8) | response[1]!;
+    const msgLen = (response[2]! << 24) | (response[3]! << 16) | (response[4]! << 8) | response[5]!;
+    const msg = Buffer.from(response.slice(6, 6 + msgLen)).toString('utf8');
+    if (status !== 200) {
+      throw new TradeError(status, `Node1 QUIC submit failed: ${msg}`);
+    }
   } finally {
     await client.destroy();
   }
@@ -1374,6 +1613,9 @@ export interface SwqosClientConfig {
   customUrl?: string;
   apiKey?: string;
   mevProtection?: boolean;
+  transport?: SwqosTransport;
+  astralaneTransport?: AstralaneTransport;
+  swqosOnly?: boolean;
 }
 
 export class ClientFactory {
@@ -1408,11 +1650,23 @@ export class ClientFactory {
 
       case SwqosType.Helius: {
         const endpoint = config.customUrl || HELIUS_ENDPOINTS[region];
-        return new HeliusClient(rpcUrl, endpoint, config.apiKey, false);
+        return new HeliusClient(rpcUrl, endpoint, config.apiKey, config.swqosOnly ?? false);
       }
 
       case SwqosType.Node1: {
         const endpoint = config.customUrl || NODE1_ENDPOINTS[region];
+        if (config.transport === SwqosTransport.Quic) {
+          const parsed = /^https?:\/\//.test(endpoint)
+            ? hostPortFromHttp(endpoint, 16666)
+            : (() => {
+                const lastColon = endpoint.lastIndexOf(':');
+                return {
+                  host: lastColon >= 0 ? endpoint.slice(0, lastColon) : endpoint,
+                  port: lastColon >= 0 ? parseInt(endpoint.slice(lastColon + 1), 10) : 16666,
+                };
+              })();
+          return new Node1QuicClient(rpcUrl, `${parsed.host}:${parsed.port}`, config.apiKey || '');
+        }
         return new Node1Client(rpcUrl, endpoint, config.apiKey);
       }
 
@@ -1422,7 +1676,26 @@ export class ClientFactory {
       }
 
       case SwqosType.Astralane: {
-        const endpoint = config.customUrl || ASTRALANE_ENDPOINTS[region];
+        const baseEndpoint = config.customUrl || ASTRALANE_ENDPOINTS[region];
+        if (config.astralaneTransport === AstralaneTransport.Quic) {
+          let endpoint: string;
+          const port = config.mevProtection ? 9000 : 7000;
+          if (config.customUrl) {
+            if (/^https?:\/\//.test(config.customUrl)) {
+              const parsed = hostPortFromHttp(config.customUrl, port);
+              endpoint = `${parsed.host}:${parsed.port}`;
+            } else {
+              endpoint = config.customUrl;
+            }
+          } else {
+            endpoint = `${ASTRALANE_QUIC_HOSTS[region]}:${port}`;
+          }
+          return new AstralaneQuicClient(rpcUrl, endpoint, config.apiKey || '');
+        }
+        const endpoint =
+          config.astralaneTransport === AstralaneTransport.Plain
+            ? baseEndpoint.replace('/irisb', '/iris')
+            : baseEndpoint;
         return new AstralaneClient(rpcUrl, endpoint, config.apiKey);
       }
 

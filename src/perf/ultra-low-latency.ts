@@ -58,10 +58,10 @@ export interface LatencyStats {
  */
 export class MemoryPool<T> {
   private pool: T[] = [];
-  private inUse: Set<T> = new Set();
   private factory: () => T;
   private resetFn: (obj: T) => void;
   private maxSize: number;
+  private leased = 0;
 
   constructor(
     factory: () => T,
@@ -82,27 +82,20 @@ export class MemoryPool<T> {
    * Acquire an object from the pool
    */
   acquire(): T {
+    this.leased++;
     if (this.pool.length > 0) {
-      const obj = this.pool.pop()!;
-      this.inUse.add(obj);
-      return obj;
+      return this.pool.pop()!;
     }
 
-    // Pool exhausted, create new (emergency)
-    const obj = this.factory();
-    this.inUse.add(obj);
-    return obj;
+    return this.factory();
   }
 
   /**
    * Release an object back to the pool
    */
   release(obj: T): void {
-    if (!this.inUse.has(obj)) {
-      return; // Not from this pool
-    }
-
-    this.inUse.delete(obj);
+    if (this.leased <= 0) return;
+    this.leased--;
 
     if (this.pool.length < this.maxSize) {
       this.resetFn(obj);
@@ -128,8 +121,8 @@ export class MemoryPool<T> {
   getStats(): { available: number; inUse: number; total: number } {
     return {
       available: this.pool.length,
-      inUse: this.inUse.size,
-      total: this.pool.length + this.inUse.size,
+      inUse: this.leased,
+      total: this.pool.length + this.leased,
     };
   }
 }
@@ -276,7 +269,7 @@ export class MPMCQueue<T> {
     let pos = this.enqueuePos;
 
     while (true) {
-      const slot = this.buffer[pos & this.mask];
+      const slot = this.buffer[pos & this.mask]!;
       const seq = slot.sequence;
       const diff = seq - pos;
 
@@ -306,7 +299,7 @@ export class MPMCQueue<T> {
     let pos = this.dequeuePos;
 
     while (true) {
-      const slot = this.buffer[pos & this.mask];
+      const slot = this.buffer[pos & this.mask]!;
       const seq = slot.sequence;
       const diff = seq - (pos + 1);
 
@@ -406,12 +399,12 @@ export class LatencyOptimizer {
     const n = sorted.length;
 
     return {
-      minLatencyUs: sorted[0],
-      maxLatencyUs: sorted[n - 1],
+      minLatencyUs: sorted[0] ?? 0,
+      maxLatencyUs: sorted[n - 1] ?? 0,
       avgLatencyUs: sorted.reduce((a, b) => a + b, 0) / n,
-      p50LatencyUs: sorted[Math.floor(n * 0.5)],
-      p99LatencyUs: sorted[Math.floor(n * 0.99)],
-      p999LatencyUs: sorted[Math.floor(n * 0.999)],
+      p50LatencyUs: sorted[Math.floor(n * 0.5)] ?? 0,
+      p99LatencyUs: sorted[Math.floor(n * 0.99)] ?? 0,
+      p999LatencyUs: sorted[Math.floor(n * 0.999)] ?? 0,
       totalOperations: n,
     };
   }
@@ -455,7 +448,8 @@ export function prefetch<T>(obj: T): void {
   // Access the object to potentially load it into cache
   if (obj && typeof obj === 'object') {
     // Touch first property to potentially trigger cache load
-    const _ = (obj as any)[Object.keys(obj)[0]];
+    const key = Object.keys(obj)[0];
+    const _ = key === undefined ? undefined : (obj as any)[key];
   }
 }
 

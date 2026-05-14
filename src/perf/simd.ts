@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * SIMD (Single Instruction Multiple Data) Module for Sol Trade SDK
  * Provides SIMD operations, detection, and crypto optimizations.

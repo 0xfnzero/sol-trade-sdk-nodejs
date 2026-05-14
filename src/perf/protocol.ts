@@ -3,7 +3,7 @@
  * Provides transaction optimization, compute budget management, and builder patterns.
  */
 
-import { PublicKey, TransactionInstruction } from '@solana/web3.js';
+import { ComputeBudgetProgram, PublicKey, TransactionInstruction } from '@solana/web3.js';
 
 // ===== Types =====
 
@@ -144,8 +144,10 @@ export class TransactionBuilder {
    * Add compute budget instructions
    */
   addComputeBudget(units: number, price: number): this {
-    // Compute budget instructions would be added here
-    // These are placeholder implementations
+    this.instructions.unshift(
+      ComputeBudgetProgram.setComputeUnitLimit({ units }),
+      ComputeBudgetProgram.setComputeUnitPrice({ microLamports: price })
+    );
     return this;
   }
 
@@ -333,7 +335,7 @@ export class ComputeBudgetOptimizer {
       critical: 5.0,
     };
 
-    const multiplier = multipliers[priority];
+    const multiplier = multipliers[priority] ?? 1.0;
 
     // Adjust based on congestion
     const congestionMultiplier = 1 + this.networkStats.congestionLevel;
@@ -394,7 +396,7 @@ export class ComputeBudgetOptimizer {
     // Find 95th percentile of compute used
     const computeUsed = this.history.map(h => h.computeUsed).sort((a, b) => a - b);
     const p95Index = Math.floor(computeUsed.length * 0.95);
-    const p95Compute = computeUsed[p95Index];
+    const p95Compute = computeUsed[p95Index] ?? computeUsed[computeUsed.length - 1] ?? this.baseConfig.computeUnitLimit;
 
     // Add 20% buffer
     return Math.ceil(p95Compute * 1.2);

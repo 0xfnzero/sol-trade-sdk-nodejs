@@ -31,9 +31,9 @@ export function encodeBase58(data: Uint8Array): string {
   const digits: number[] = [0];
 
   for (let i = leadingZeros; i < data.length; i++) {
-    let carry = data[i];
+    let carry = data[i]!;
     for (let j = 0; j < digits.length; j++) {
-      carry += digits[j] << 8;
+      carry += digits[j]! << 8;
       digits[j] = carry % 58;
       carry = (carry / 58) | 0;
     }
@@ -49,7 +49,7 @@ export function encodeBase58(data: Uint8Array): string {
     result += '1';
   }
   for (let i = digits.length - 1; i >= 0; i--) {
-    result += BASE58_ALPHABET[digits[i]];
+    result += BASE58_ALPHABET[digits[i]!]!;
   }
 
   return result;
@@ -62,7 +62,7 @@ export function decodeBase58(s: string): Uint8Array {
   const bytes: number[] = [0];
 
   for (let i = 0; i < s.length; i++) {
-    const char = s[i];
+    const char = s[i]!;
     const value = BASE58_ALPHABET.indexOf(char);
     if (value === -1) {
       throw new Error(`Invalid base58 character: ${char}`);
@@ -70,7 +70,7 @@ export function decodeBase58(s: string): Uint8Array {
 
     let carry = value;
     for (let j = 0; j < bytes.length; j++) {
-      carry += bytes[j] * 58;
+      carry += bytes[j]! * 58;
       bytes[j] = carry & 0xff;
       carry = carry >> 8;
     }
@@ -94,7 +94,7 @@ export function decodeBase58(s: string): Uint8Array {
   const result = new Uint8Array(leadingOnes + bytes.length);
   result.set(new Uint8Array(leadingOnes), 0);
   for (let i = 0; i < bytes.length; i++) {
-    result[leadingOnes + bytes.length - 1 - i] = bytes[i];
+    result[leadingOnes + bytes.length - 1 - i] = bytes[i]!;
   }
 
   return result;

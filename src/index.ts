@@ -19,6 +19,7 @@ import {
   SystemProgram,
   type SimulateTransactionConfig,
 } from '@solana/web3.js';
+import { cpus } from 'node:os';
 
 // Import GasFeeStrategy class for createGasFeeStrategy / TradeConfig.gasStrategy
 import {
@@ -107,6 +108,7 @@ export enum SwqosRegion {
   Frankfurt = 'Frankfurt',
   NewYork = 'NewYork',
   Amsterdam = 'Amsterdam',
+  Dublin = 'Dublin',
   Tokyo = 'Tokyo',
   Singapore = 'Singapore',
   SLC = 'SLC',
@@ -141,6 +143,18 @@ export enum SwqosType {
   Alchemy = 'Alchemy',
 }
 
+export enum SwqosTransport {
+  Http = 'Http',
+  Grpc = 'Grpc',
+  Quic = 'Quic',
+}
+
+export enum AstralaneTransport {
+  Binary = 'Binary',
+  Plain = 'Plain',
+  Quic = 'Quic',
+}
+
 // ============== Interfaces ==============
 
 /**
@@ -152,6 +166,9 @@ export interface SwqosConfig {
   apiKey: string;
   customUrl?: string;
   mevProtection?: boolean;
+  transport?: SwqosTransport;
+  astralaneTransport?: AstralaneTransport;
+  swqosOnly?: boolean;
 }
 
 /**
@@ -284,9 +301,15 @@ export interface PumpFunParams {
   associatedBondingCurve: PublicKey;
   creatorVault: PublicKey;
   tokenProgram: PublicKey;
+  observedTradeCreator?: PublicKey;
+  feeSharingCreatorVaultIfActive?: PublicKey;
   closeTokenAccountWhenSell?: boolean;
   /** Parser/gRPC fee recipient; omit or `PublicKey.default` for SDK random pool (Rust parity). */
   feeRecipient?: PublicKey;
+  /** PumpFun V2 quote mint; omit or default pubkey for WSOL. */
+  quoteMint?: PublicKey;
+  /** Per-token V2 ix toggle; global `TradeConfig.usePumpfunV2` also enables it. */
+  useV2Ix?: boolean;
 }
 
 /**
@@ -401,6 +424,10 @@ export interface TradeConfig {
   gasStrategy?: GasFeeStrategyClass;
   /** Reserved for Rust parity (seed-optimized ATA); instruction builders may ignore if not wired. */
   useSeedOptimize?: boolean;
+  /** Use PumpFun V2 ix layout by default (`buy_v2` / `sell_v2` / quote mint support). */
+  usePumpfunV2?: boolean;
+  /** Prefer assigning SWQOS submit threads from the end of the CPU core list. */
+  swqosCoresFromEnd?: boolean;
   /** If true, best-effort background WSOL ATA creation after connect (Rust `create_wsol_ata_on_startup`). */
   createWsolAtaOnStartup?: boolean;
   /**
@@ -433,6 +460,8 @@ export class TradeConfigBuilder {
   private _checkMinTip: boolean = false;
   private _mevProtection: boolean = false;
   private _useSeedOptimize: boolean = true;
+  private _usePumpfunV2: boolean = false;
+  private _swqosCoresFromEnd: boolean = true;
   private _createWsolAtaOnStartup: boolean = false;
   private _gasFeeStrategy?: GasFeeStrategyConfig;
   private _gasStrategy?: GasFeeStrategyClass;
@@ -483,6 +512,16 @@ export class TradeConfigBuilder {
     return this;
   }
 
+  usePumpfunV2(enabled: boolean): this {
+    this._usePumpfunV2 = enabled;
+    return this;
+  }
+
+  swqosCoresFromEnd(enabled: boolean): this {
+    this._swqosCoresFromEnd = enabled;
+    return this;
+  }
+
   createWsolAtaOnStartup(enabled: boolean): this {
     this._createWsolAtaOnStartup = enabled;
     return this;
@@ -521,6 +560,8 @@ export class TradeConfigBuilder {
       checkMinTip: this._checkMinTip,
       mevProtection: this._mevProtection,
       useSeedOptimize: this._useSeedOptimize,
+      usePumpfunV2: this._usePumpfunV2,
+      swqosCoresFromEnd: this._swqosCoresFromEnd,
       createWsolAtaOnStartup: this._createWsolAtaOnStartup,
       gasFeeStrategy: this._gasFeeStrategy,
       gasStrategy: this._gasStrategy,
@@ -528,6 +569,21 @@ export class TradeConfigBuilder {
       maxSwqosSubmitConcurrency: this._maxSwqosSubmitConcurrency,
     };
   }
+}
+
+export function recommendedSenderThreadCoreIndices(
+  swqosCount: number,
+  availableCores: number = cpus().length,
+  fromEnd: boolean = true
+): number[] {
+  if (swqosCount <= 0 || availableCores <= 0) {
+    return [];
+  }
+  const count = Math.min(swqosCount, availableCores);
+  if (fromEnd) {
+    return Array.from({ length: count }, (_, i) => availableCores - count + i);
+  }
+  return Array.from({ length: count }, (_, i) => i);
 }
 
 /**
@@ -570,14 +626,19 @@ function mapPumpFunParams(p: PumpFunParams): PumpFunBuilderParams {
       virtualTokenReserves: BigInt(bc.virtualTokenReserves),
       virtualSolReserves: BigInt(bc.virtualSolReserves),
       realTokenReserves: BigInt(bc.realTokenReserves),
+      creator: bc.creator,
       isMayhemMode: bc.isMayhemMode,
       isCashbackCoin: bc.isCashbackCoin,
     },
     creatorVault: p.creatorVault,
     tokenProgram: p.tokenProgram,
     associatedBondingCurve: p.associatedBondingCurve,
+    observedTradeCreator: p.observedTradeCreator,
+    feeSharingCreatorVaultIfActive: p.feeSharingCreatorVaultIfActive,
     closeTokenAccountWhenSell: p.closeTokenAccountWhenSell,
     feeRecipient: p.feeRecipient,
+    quoteMint: p.quoteMint,
+    useV2Ix: p.useV2Ix,
   };
 }
 
@@ -706,6 +767,9 @@ function mapSwqosToClientConfig(
   apiKey?: string;
   customUrl?: string;
   mevProtection?: boolean;
+  transport?: SwqosTransport;
+  astralaneTransport?: AstralaneTransport;
+  swqosOnly?: boolean;
 } {
   return {
     type: c.type,
@@ -713,6 +777,9 @@ function mapSwqosToClientConfig(
     apiKey: c.apiKey,
     customUrl: c.customUrl,
     mevProtection: c.mevProtection ?? globalMev ?? false,
+    transport: c.transport,
+    astralaneTransport: c.astralaneTransport,
+    swqosOnly: c.swqosOnly,
   };
 }
 
@@ -1127,59 +1194,15 @@ export class TradingClient {
    * Wrap SOL to WSOL
    */
   async wrapSolToWsol(amount: number): Promise<string> {
-    const instructions = handleWsol(this.payer.publicKey, BigInt(amount));
-    const { blockhash, lastValidBlockHeight } =
-      await this.connection.getLatestBlockhash(this.rpcCommitment());
-
-    const transaction = new Transaction({
-      blockhash,
-      lastValidBlockHeight,
-    });
-    transaction.add(...instructions);
-    transaction.sign(this.payer);
-
-    const signature = await this.connection.sendRawTransaction(
-      transaction.serialize()
-    );
-    await this.connection.confirmTransaction(
-      {
-        signature,
-        blockhash,
-        lastValidBlockHeight,
-      },
-      this.rpcCommitment()
-    );
-
-    return signature;
+    if (amount <= 0) throw new TradeError(2, 'Amount must be greater than zero');
+    return this.sendInstructions(handleWsol(this.payer.publicKey, BigInt(amount)));
   }
 
   /**
    * Close WSOL account and unwrap to SOL
    */
   async closeWsol(): Promise<string> {
-    const { blockhash, lastValidBlockHeight } =
-      await this.connection.getLatestBlockhash(this.rpcCommitment());
-
-    const transaction = new Transaction({
-      blockhash,
-      lastValidBlockHeight,
-    });
-    transaction.add(wsolCloseIx(this.payer.publicKey));
-    transaction.sign(this.payer);
-
-    const signature = await this.connection.sendRawTransaction(
-      transaction.serialize()
-    );
-    await this.connection.confirmTransaction(
-      {
-        signature,
-        blockhash,
-        lastValidBlockHeight,
-      },
-      this.rpcCommitment()
-    );
-
-    return signature;
+    return this.sendSingleInstruction(wsolCloseIx(this.payer.publicKey));
   }
 
   /**
@@ -1208,28 +1231,18 @@ export class TradingClient {
         TOKEN_PROGRAM
       ),
     ];
+    return this.sendInstructions(ixs);
+  }
+
+  private async sendSingleInstruction(ix: TransactionInstruction): Promise<string> {
+    return this.sendInstructions([ix]);
+  }
+
+  private async sendInstructions(ixs: TransactionInstruction[]): Promise<string> {
     const { blockhash, lastValidBlockHeight } =
       await this.connection.getLatestBlockhash(this.rpcCommitment());
     const tx = new Transaction({ blockhash, lastValidBlockHeight });
     tx.add(...ixs);
-    tx.sign(this.payer);
-    const signature = await this.connection.sendRawTransaction(tx.serialize());
-    await this.connection.confirmTransaction(
-      {
-        signature,
-        blockhash,
-        lastValidBlockHeight,
-      },
-      this.rpcCommitment()
-    );
-    return signature;
-  }
-
-  private async sendSingleInstruction(ix: TransactionInstruction): Promise<string> {
-    const { blockhash, lastValidBlockHeight } =
-      await this.connection.getLatestBlockhash(this.rpcCommitment());
-    const tx = new Transaction({ blockhash, lastValidBlockHeight });
-    tx.add(ix);
     tx.sign(this.payer);
     const signature = await this.connection.sendRawTransaction(tx.serialize());
     await this.connection.confirmTransaction(
@@ -1262,10 +1275,12 @@ export class TradingClient {
             params.fixedOutputTokenAmount !== undefined
               ? BigInt(params.fixedOutputTokenAmount)
               : undefined,
-          createOutputMintAta: params.createMintAta ?? true,
-          protocolParams: mapPumpFunParams(ext.params),
-          useExactSolAmount: params.useExactSolAmount ?? true,
-        });
+	          createOutputMintAta: params.createMintAta ?? true,
+	          createInputMintAta: params.createInputTokenAta ?? false,
+	          protocolParams: mapPumpFunParams(ext.params),
+	          useExactSolAmount: params.useExactSolAmount ?? true,
+	          usePumpFunV2: this._config.usePumpfunV2 ?? ext.params.useV2Ix ?? false,
+	        });
       }
       case DexType.PumpSwap: {
         if (ext.type !== 'PumpSwap') throw new TradeError(5, 'Invalid PumpSwap params');
@@ -1444,9 +1459,11 @@ export class TradingClient {
             params.fixedOutputTokenAmount !== undefined
               ? BigInt(params.fixedOutputTokenAmount)
               : undefined,
-          closeInputMintAta: params.closeMintTokenAta ?? false,
-          protocolParams: mapPumpFunParams(ext.params),
-        });
+	          closeInputMintAta: params.closeMintTokenAta ?? false,
+	          createOutputMintAta: params.createOutputTokenAta ?? false,
+	          protocolParams: mapPumpFunParams(ext.params),
+	          usePumpFunV2: this._config.usePumpfunV2 ?? ext.params.useV2Ix ?? false,
+	        });
       }
       case DexType.PumpSwap: {
         if (ext.type !== 'PumpSwap') throw new TradeError(5, 'Invalid PumpSwap params');
@@ -2057,6 +2074,9 @@ export * from './utils';
 
 // Re-export hotpath module
 export * from './hotpath';
+
+// Re-export ultra-low-latency/perf helpers without colliding with hotpath symbols.
+export * as perf from './perf';
 
 // Re-export gas fee strategy class
 export { GasFeeStrategy, GasFeeStrategyType } from './common/gas-fee-strategy';

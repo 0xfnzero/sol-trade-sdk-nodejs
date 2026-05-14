@@ -151,7 +151,7 @@ export class CPUAffinity {
     if (this.config.preferredCores.length > 0) {
       // Use preferred cores
       for (let i = 0; i < count && i < this.config.preferredCores.length; i++) {
-        cores.push(this.config.preferredCores[i]);
+        cores.push(this.config.preferredCores[i]!);
       }
     } else {
       // Use first N physical cores (avoiding SMT if configured)
@@ -393,6 +393,9 @@ export class CacheOptimizer {
 
     for (const [key, type] of Object.entries(schema)) {
       const size = typeSizes[type];
+      if (size === undefined) {
+        throw new Error(`Unsupported struct field type: ${type}`);
+      }
       const alignedOffset = this.alignToCacheLine(currentOffset);
       offsets[key as keyof T] = alignedOffset;
 

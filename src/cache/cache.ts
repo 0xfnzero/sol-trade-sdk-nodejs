@@ -78,6 +78,9 @@ export class LRUCache<K, V> {
       // Evict if over capacity
       while (this.cache.size > this.maxSize) {
         const firstKey = this.cache.keys().next().value;
+        if (firstKey === undefined) {
+          break;
+        }
         this.cache.delete(firstKey);
         this.evictions++;
       }
@@ -209,7 +212,7 @@ export class ShardedCache<K, V> {
   private getShard(key: K): LRUCache<K, V> {
     // Simple hash
     const hash = this.hashKey(key);
-    return this.shards[hash & this.shardMask];
+    return this.shards[hash & this.shardMask]!;
   }
 
   private hashKey(key: K): number {

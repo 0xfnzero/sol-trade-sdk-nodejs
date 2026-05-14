@@ -273,8 +273,8 @@ export class OptimizedMath {
     const u32 = new Uint32Array(buf);
 
     f32[0] = y;
-    u32[0] = 0x5f3759df - (u32[0] >> 1);
-    y = f32[0];
+    u32[0] = 0x5f3759df - (u32[0]! >> 1);
+    y = f32[0]!;
 
     // Newton iteration
     y = y * (threehalfs - x2 * y * y);
