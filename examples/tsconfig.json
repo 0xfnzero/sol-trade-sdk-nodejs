@@ -1,0 +1,13 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "..",
+    "baseUrl": "..",
+    "paths": {
+      "sol-trade-sdk": ["src/index.ts"],
+      "sol-trade-sdk/*": ["src/*"]
+    }
+  },
+  "include": ["*.ts"]
+}

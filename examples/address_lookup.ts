@@ -1,48 +1,22 @@
-/**
- * Address Lookup Table Example
- *
- * This example demonstrates how to use Address Lookup Tables (ALT)
- * to optimize transaction size and reduce fees.
- */
-
-import {
-  fetchAddressLookupTableAccount,
-  AddressLookupTableCache,
-} from 'sol-trade-sdk/address-lookup';
-import { Connection, PublicKey } from '@solana/web3.js';
+import { PublicKey } from '@solana/web3.js';
+import { AddressLookupTableCache, fetchAddressLookupTableAccount } from 'sol-trade-sdk';
+import { createConnection } from './_shared';
 
 async function main() {
-  console.log('Address Lookup Table Example');
+  const connection = createConnection();
+  const cache = new AddressLookupTableCache();
+  const altAddress = process.env.ALT_ADDRESS ? new PublicKey(process.env.ALT_ADDRESS) : undefined;
 
-  // Create connection
-  const connection = new Connection('https://api.mainnet-beta.solana.com');
-
-  // Example ALT address
-  const altAddress = new PublicKey('your_alt_address_here');
-
-  try {
-    // Fetch ALT from chain
-    const alt = await fetchAddressLookupTableAccount(connection, altAddress);
-    console.log(`ALT contains ${alt.addresses.length} addresses`);
-
-    // List addresses
-    for (let i = 0; i < alt.addresses.length; i++) {
-      console.log(`  [${i}] ${alt.addresses[i].toBase58()}`);
-    }
-
-    // Use cache for performance
-    const cache = new AddressLookupTableCache(connection);
-    await cache.prefetch([altAddress]);
-    const cached = cache.get(altAddress);
-    if (cached) {
-      console.log('\nCached ALT retrieved successfully');
-    }
-  } catch (error) {
-    console.log('ALT example completed (no real ALT provided)');
+  console.log('Address Lookup Table example prepared.');
+  if (!altAddress) {
+    console.log('Set ALT_ADDRESS to fetch and cache a real lookup table.');
     return;
   }
 
-  console.log('\nAddress Lookup Table example completed!');
+  const direct = await fetchAddressLookupTableAccount(connection, altAddress);
+  const cached = await cache.getLookupTable(connection, altAddress);
+  console.log('Direct ALT size:', direct?.addresses.length ?? 0);
+  console.log('Cached ALT size:', cached?.addresses.length ?? 0);
 }
 
 main().catch(console.error);

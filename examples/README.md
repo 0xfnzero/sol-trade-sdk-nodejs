@@ -1,43 +1,29 @@
 # Sol Trade SDK Node.js Examples
 
-This directory contains examples demonstrating how to use the Sol Trade SDK for Node.js.
+Examples are updated for the current TypeScript SDK API. They run in dry-run mode by default so they do not send mainnet transactions accidentally.
 
-## Examples Summary
+## Run
 
-| Description | File | Run Command |
-|-------------|------|-------------|
-| Create and configure TradingClient instance | [trading_client.ts](trading_client.ts) | `npx ts-node examples/trading_client.ts` |
-| Share infrastructure across multiple wallets | [shared_infrastructure.ts](shared_infrastructure.ts) | `npx ts-node examples/shared_infrastructure.ts` |
-| PumpFun token sniping trading | [pumpfun_sniper_trading.ts](pumpfun_sniper_trading.ts) | `npx ts-node examples/pumpfun_sniper_trading.ts` |
-| Gas fee strategy example | [gas_fee_strategy.ts](gas_fee_strategy.ts) | `npx ts-node examples/gas_fee_strategy.ts` |
+~~~bash
+npm install
+npx tsx examples/trading_client.ts
+~~~
 
-## Environment Setup
+Set RUN_LIVE_EXAMPLES=1 only after replacing placeholder params with real RPC/parser data and funding the signer.
 
-Set the following environment variables before running examples:
+## Coverage
 
-```bash
-export RPC_URL="https://api.mainnet-beta.solana.com"
-# Or use Helius for better performance:
-# export RPC_URL="https://mainnet.helius-rpc.com/?api-key=your_api_key"
-```
-
-## Quick Start
-
-1. Install the SDK:
-```bash
-npm install sol-trade-sdk
-```
-
-2. Configure your keypair and settings
-
-3. Run an example:
-```bash
-npx ts-node examples/trading_client.ts
-```
-
-## Important Notes
-
-- Replace placeholder keypairs with your actual keypairs
-- Configure SWQoS services with your API tokens for better transaction landing
-- Test thoroughly before using on mainnet
-- Monitor balances and transaction fees
+| Area | Example |
+| --- | --- |
+| Trading client and low-latency config | [trading_client.ts](trading_client.ts) |
+| Shared config across wallets | [shared_infrastructure.ts](shared_infrastructure.ts) |
+| PumpFun v2 fee recipient and cashback | [pumpfun_sniper_trading.ts](pumpfun_sniper_trading.ts), [pumpfun_copy_trading.ts](pumpfun_copy_trading.ts) |
+| PumpSwap cashback-aware params | [pumpswap_trading.ts](pumpswap_trading.ts), [pumpswap_direct_trading.ts](pumpswap_direct_trading.ts) |
+| Bonk / USD1 routing | [bonk_sniper_trading.ts](bonk_sniper_trading.ts), [bonk_copy_trading.ts](bonk_copy_trading.ts) |
+| Raydium CPMM / AMM v4 | [raydium_cpmm_trading.ts](raydium_cpmm_trading.ts), [raydium_amm_v4_trading.ts](raydium_amm_v4_trading.ts) |
+| Meteora DAMM v2 | [meteora_damm_v2_trading.ts](meteora_damm_v2_trading.ts) |
+| Durable nonce | [nonce_cache.ts](nonce_cache.ts) |
+| Hot path / zero-RPC preparation | [hot_path_trading.ts](hot_path_trading.ts) |
+| Address lookup tables | [address_lookup.ts](address_lookup.ts) |
+| Middleware | [middleware_system.ts](middleware_system.ts) |
+| WSOL helpers | [wsol_wrapper.ts](wsol_wrapper.ts) |
