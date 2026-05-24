@@ -128,6 +128,16 @@ export interface RaydiumAmmV4Params {
   pcMint?: PublicKey;
   tokenCoin?: PublicKey;
   tokenPc?: PublicKey;
+  ammOpenOrders?: PublicKey;
+  ammTargetOrders?: PublicKey;
+  serumProgram?: PublicKey;
+  serumMarket?: PublicKey;
+  serumBids?: PublicKey;
+  serumAsks?: PublicKey;
+  serumEventQueue?: PublicKey;
+  serumCoinVaultAccount?: PublicKey;
+  serumPcVaultAccount?: PublicKey;
+  serumVaultSigner?: PublicKey;
   coinReserve?: bigint;
   pcReserve?: bigint;
 }

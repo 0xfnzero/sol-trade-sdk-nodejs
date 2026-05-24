@@ -117,11 +117,11 @@ Add to your `package.json`:
 ### Use NPM
 
 ```bash
-npm install sol-trade-sdk
+npm install sol-trade-sdk@0.1.1
 # or
-yarn add sol-trade-sdk
+yarn add sol-trade-sdk@0.1.1
 # or
-pnpm add sol-trade-sdk
+pnpm add sol-trade-sdk@0.1.1
 ```
 
 ## 🛠️ Usage Examples

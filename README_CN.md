@@ -117,11 +117,11 @@ npm run build
 ### 使用 NPM
 
 ```bash
-npm install sol-trade-sdk
+npm install sol-trade-sdk@0.1.1
 # 或
-yarn add sol-trade-sdk
+yarn add sol-trade-sdk@0.1.1
 # 或
-pnpm add sol-trade-sdk
+pnpm add sol-trade-sdk@0.1.1
 ```
 
 ## 🛠️ 使用示例

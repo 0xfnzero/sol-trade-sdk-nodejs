@@ -83,7 +83,6 @@ export function lowLatencyGasStrategy(): GasFeeStrategy {
 export function tradeConfig(options: Partial<TradeConfig> = {}): TradeConfig {
   return TradeConfigBuilder.create(rpcUrl())
     .swqosConfigs(options.swqosConfigs ?? defaultSwqosConfigs())
-    .usePumpfunV2(options.usePumpfunV2 ?? true)
     .useSeedOptimize(options.useSeedOptimize ?? true)
     .swqosCoresFromEnd(options.swqosCoresFromEnd ?? true)
     .maxSwqosSubmitConcurrency(options.maxSwqosSubmitConcurrency ?? 8)
@@ -124,7 +123,6 @@ export function pumpFunParams(): PumpFunParams {
     tokenProgram: CONSTANTS.TOKEN_PROGRAM,
     feeRecipient: examplePublicKey(15),
     quoteMint: CONSTANTS.WSOL_TOKEN_ACCOUNT,
-    useV2Ix: true,
   };
 }
 
@@ -186,17 +184,27 @@ export function raydiumAmmV4Params(): RaydiumAmmV4Params {
     pcMint: CONSTANTS.WSOL_TOKEN_ACCOUNT,
     tokenCoin: examplePublicKey(53),
     tokenPc: examplePublicKey(54),
-    coinReserve: 2_000_000_000,
-    pcReserve: 50_000_000_000,
+    ammOpenOrders: examplePublicKey(55),
+    ammTargetOrders: examplePublicKey(56),
+    serumProgram: examplePublicKey(57),
+    serumMarket: examplePublicKey(58),
+    serumBids: examplePublicKey(59),
+    serumAsks: examplePublicKey(60),
+    serumEventQueue: examplePublicKey(61),
+    serumCoinVaultAccount: examplePublicKey(62),
+    serumPcVaultAccount: examplePublicKey(63),
+    serumVaultSigner: examplePublicKey(64),
+    coinReserve: 2_000_000_000n,
+    pcReserve: 50_000_000_000n,
   };
 }
 
 export function meteoraDammV2Params(): MeteoraDammV2Params {
   return {
-    pool: examplePublicKey(61),
-    tokenAVault: examplePublicKey(62),
-    tokenBVault: examplePublicKey(63),
-    tokenAMint: examplePublicKey(64),
+    pool: examplePublicKey(71),
+    tokenAVault: examplePublicKey(72),
+    tokenBVault: examplePublicKey(73),
+    tokenAMint: examplePublicKey(74),
     tokenBMint: CONSTANTS.WSOL_TOKEN_ACCOUNT,
     tokenAProgram: CONSTANTS.TOKEN_PROGRAM,
     tokenBProgram: CONSTANTS.TOKEN_PROGRAM,
@@ -220,11 +228,26 @@ export function dexParams(dexType: DexType): DexParamEnum {
   }
 }
 
-export function exampleBuyParams(dexType: DexType, mint = examplePublicKey(91)): TradeBuyParams {
-  return {
+function defaultTradeMint(dexType: DexType): PublicKey {
+  switch (dexType) {
+    case DexType.PumpSwap:
+      return pumpSwapParams().baseMint;
+    case DexType.RaydiumCpmm:
+      return raydiumCpmmParams().baseMint;
+    case DexType.RaydiumAmmV4:
+      return raydiumAmmV4Params().coinMint;
+    case DexType.MeteoraDammV2:
+      return meteoraDammV2Params().tokenAMint;
+    default:
+      return examplePublicKey(91);
+  }
+}
+
+export function exampleBuyParams(dexType: DexType, mint?: PublicKey): TradeBuyParams {
+  const params: TradeBuyParams = {
     dexType,
     inputTokenType: dexType === DexType.Bonk ? TradeTokenType.USD1 : TradeTokenType.WSOL,
-    mint,
+    mint: mint ?? defaultTradeMint(dexType),
     inputTokenAmount: 100_000,
     slippageBasisPoints: 300,
     recentBlockhash: EXAMPLE_BLOCKHASH,
@@ -236,13 +259,17 @@ export function exampleBuyParams(dexType: DexType, mint = examplePublicKey(91)):
     gasFeeStrategy: flatGasFeeStrategy,
     grpcRecvUs: Date.now() * 1000,
   };
+  if (dexType === DexType.MeteoraDammV2) {
+    params.fixedOutputTokenAmount = 90_000;
+  }
+  return params;
 }
 
-export function exampleSellParams(dexType: DexType, mint = examplePublicKey(91)): TradeSellParams {
-  return {
+export function exampleSellParams(dexType: DexType, mint?: PublicKey): TradeSellParams {
+  const params: TradeSellParams = {
     dexType,
     outputTokenType: dexType === DexType.Bonk ? TradeTokenType.USD1 : TradeTokenType.WSOL,
-    mint,
+    mint: mint ?? defaultTradeMint(dexType),
     inputTokenAmount: 50_000,
     slippageBasisPoints: 300,
     recentBlockhash: EXAMPLE_BLOCKHASH,
@@ -255,6 +282,10 @@ export function exampleSellParams(dexType: DexType, mint = examplePublicKey(91))
     gasFeeStrategy: flatGasFeeStrategy,
     grpcRecvUs: Date.now() * 1000,
   };
+  if (dexType === DexType.MeteoraDammV2) {
+    params.fixedOutputTokenAmount = 45_000;
+  }
+  return params;
 }
 
 export function describeDryRun(name: string): void {

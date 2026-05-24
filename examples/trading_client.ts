@@ -5,7 +5,6 @@ import { defaultSwqosConfigs, tradeConfig } from './_shared';
 async function main() {
   const config = tradeConfig({
     swqosConfigs: defaultSwqosConfigs(),
-    usePumpfunV2: true,
     createWsolAtaOnStartup: false,
     maxSwqosSubmitConcurrency: 8,
   });

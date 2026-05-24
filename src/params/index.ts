@@ -31,7 +31,11 @@ import {
   fetchRaydiumCPMMpoolState,
   getRaydiumCPMMpoolTokenBalances,
 } from '../instruction/raydium_cpmm_builder';
-import { fetchAmmInfo } from '../instruction/raydium_amm_v4_builder';
+import {
+  deriveSerumVaultSigner,
+  fetchAmmInfo,
+  fetchMarketState,
+} from '../instruction/raydium_amm_v4_builder';
 import { fetchMeteoraPool } from '../instruction/meteora_damm_v2_builder';
 
 /** Maps `Connection` to the minimal RPC shape used by Rust-parity instruction fetch helpers. */
@@ -423,8 +427,18 @@ export class RaydiumAmmV4Params {
     public pcMint: PublicKey,
     public tokenCoin: PublicKey,
     public tokenPc: PublicKey,
-    public coinReserve: number,
-    public pcReserve: number
+    public ammOpenOrders: PublicKey,
+    public ammTargetOrders: PublicKey,
+    public serumProgram: PublicKey,
+    public serumMarket: PublicKey,
+    public serumBids: PublicKey,
+    public serumAsks: PublicKey,
+    public serumEventQueue: PublicKey,
+    public serumCoinVaultAccount: PublicKey,
+    public serumPcVaultAccount: PublicKey,
+    public serumVaultSigner: PublicKey,
+    public coinReserve: bigint,
+    public pcReserve: bigint
   ) {}
 
   static async fromAmmAddressByRpc(
@@ -435,16 +449,35 @@ export class RaydiumAmmV4Params {
     if (!ammInfo) {
       throw new Error('Raydium AMM account not found');
     }
+    const marketState = await fetchMarketState(wrapConnection(connection), ammInfo.market);
+    if (!marketState) {
+      throw new Error('Raydium AMM market account not found');
+    }
+    const serumVaultSigner = deriveSerumVaultSigner(
+      ammInfo.serumDex,
+      ammInfo.market,
+      marketState.vaultSignerNonce
+    );
     const coinBal = await connection.getTokenAccountBalance(ammInfo.tokenCoin);
     const pcBal = await connection.getTokenAccountBalance(ammInfo.tokenPc);
-    const coinReserve = Number(coinBal.value.amount);
-    const pcReserve = Number(pcBal.value.amount);
+    const coinReserve = BigInt(coinBal.value.amount);
+    const pcReserve = BigInt(pcBal.value.amount);
     return new RaydiumAmmV4Params(
       amm,
       ammInfo.coinMint,
       ammInfo.pcMint,
       ammInfo.tokenCoin,
       ammInfo.tokenPc,
+      ammInfo.openOrders,
+      ammInfo.targetOrders,
+      ammInfo.serumDex,
+      ammInfo.market,
+      marketState.serumBids,
+      marketState.serumAsks,
+      marketState.serumEventQueue,
+      marketState.serumCoinVaultAccount,
+      marketState.serumPcVaultAccount,
+      serumVaultSigner,
       coinReserve,
       pcReserve
     );

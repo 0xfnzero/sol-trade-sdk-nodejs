@@ -25,6 +25,8 @@ import {
   NATIVE_MINT,
 } from "@solana/spl-token";
 
+const SOL_TOKEN_ACCOUNT = new PublicKey("So11111111111111111111111111111111111111111");
+
 // ============================================
 // Program IDs and Constants
 // ============================================
@@ -283,12 +285,11 @@ export interface PumpFunParams {
   feeRecipient?: PublicKey;
   /** Quote mint for V2 instructions; default means WSOL. */
   quoteMint?: PublicKey;
-  /** Per-params V2 toggle; global `TradeConfig.usePumpfunV2` also maps here. */
-  useV2Ix?: boolean;
 }
 
 export interface PumpFunBuildBuyParams {
   payer: Keypair | PublicKey;
+  inputMint?: PublicKey;
   outputMint: PublicKey;
   inputAmount: bigint;
   slippageBasisPoints?: bigint;
@@ -297,19 +298,18 @@ export interface PumpFunBuildBuyParams {
   createInputMintAta?: boolean;
   protocolParams: PumpFunParams;
   useExactSolAmount?: boolean;
-  usePumpFunV2?: boolean;
 }
 
 export interface PumpFunBuildSellParams {
   payer: Keypair | PublicKey;
   inputMint: PublicKey;
+  outputMint?: PublicKey;
   inputAmount: bigint;
   slippageBasisPoints?: bigint;
   fixedOutputAmount?: bigint;
   createOutputMintAta?: boolean;
   closeInputMintAta?: boolean;
   protocolParams: PumpFunParams;
-  usePumpFunV2?: boolean;
 }
 
 // ============================================
@@ -391,7 +391,36 @@ function effectivePumpMintTokenProgram(mint: PublicKey, protocolParams: PumpFunP
 }
 
 function effectiveQuoteMint(protocolParams: PumpFunParams): PublicKey {
-  return isUsablePubkey(protocolParams.quoteMint) ? protocolParams.quoteMint : NATIVE_MINT;
+  if (!isUsablePubkey(protocolParams.quoteMint) || protocolParams.quoteMint.equals(SOL_TOKEN_ACCOUNT)) {
+    return NATIVE_MINT;
+  }
+  return protocolParams.quoteMint;
+}
+
+function isSolQuoteMint(mint: PublicKey): boolean {
+  return mint.equals(SOL_TOKEN_ACCOUNT) || mint.equals(NATIVE_MINT);
+}
+
+function validateV2BuyQuoteMint(inputMint: PublicKey, quoteMint: PublicKey): void {
+  if (isSolQuoteMint(quoteMint)) {
+    if (inputMint.equals(SOL_TOKEN_ACCOUNT) || inputMint.equals(NATIVE_MINT)) return;
+  } else if (inputMint.equals(quoteMint)) {
+    return;
+  }
+  throw new Error(
+    `PumpFun V2 buy input_mint ${inputMint.toBase58()} does not match quote_mint ${quoteMint.toBase58()}; USDC quote pools must be bought with USDC, not SOL`
+  );
+}
+
+function validateV2SellQuoteMint(outputMint: PublicKey, quoteMint: PublicKey): void {
+  if (isSolQuoteMint(quoteMint)) {
+    if (outputMint.equals(SOL_TOKEN_ACCOUNT) || outputMint.equals(NATIVE_MINT)) return;
+  } else if (outputMint.equals(quoteMint)) {
+    return;
+  }
+  throw new Error(
+    `PumpFun V2 sell output_mint ${outputMint.toBase58()} does not match quote_mint ${quoteMint.toBase58()}; USDC quote pools settle to USDC, not SOL`
+  );
 }
 
 function associatedTokenAddress(mint: PublicKey, owner: PublicKey, tokenProgram: PublicKey): PublicKey {
@@ -457,6 +486,7 @@ export function buildPumpFunBuyInstructions(
 ): TransactionInstruction[] {
 	const {
 	  payer,
+	  inputMint = SOL_TOKEN_ACCOUNT,
 	  outputMint,
 	  inputAmount,
 	  slippageBasisPoints = BigInt(1000),
@@ -465,14 +495,13 @@ export function buildPumpFunBuyInstructions(
 	  createInputMintAta = false,
 	  protocolParams,
 	  useExactSolAmount = true,
-	  usePumpFunV2 = false,
 	} = params;
 
-	if (usePumpFunV2 || protocolParams.useV2Ix || isUsablePubkey(protocolParams.quoteMint)) {
+	if (isUsablePubkey(protocolParams.quoteMint)) {
 	  return buildPumpFunBuyV2Instructions({
 	    ...params,
+	    inputMint,
 	    createInputMintAta,
-	    usePumpFunV2: true,
 	  });
 	}
 
@@ -534,9 +563,7 @@ export function buildPumpFunBuyInstructions(
   const bondingCurveV2 = getBondingCurveV2Pda(outputMint);
 
   // Track volume for cashback coins
-  const trackVolume = bondingCurve.isCashbackCoin
-    ? Buffer.from([1, 1])
-    : Buffer.from([1, 0]);
+  const trackVolume = bondingCurve.isCashbackCoin ? 1 : 0;
 
   const buyTokenAmount = fixedOutputAmount
     ? fixedOutputAmount
@@ -550,18 +577,18 @@ export function buildPumpFunBuyInstructions(
     const minTokensOut = fixedOutputAmount
       ? fixedOutputAmount
       : calculateWithSlippageSell(buyTokenAmount, slippageBasisPoints);
-    data = Buffer.alloc(26);
+    data = Buffer.alloc(25);
     PUMPFUN_BUY_EXACT_SOL_IN_DISCRIMINATOR.copy(data, 0);
     data.writeBigUInt64LE(inputAmount, 8);
     data.writeBigUInt64LE(minTokensOut, 16);
-    trackVolume.copy(data, 24);
+    data[24] = trackVolume;
   } else {
     // buy(token_amount: u64, max_sol_cost: u64, track_volume)
-    data = Buffer.alloc(26);
+    data = Buffer.alloc(25);
     PUMPFUN_BUY_DISCRIMINATOR.copy(data, 0);
     data.writeBigUInt64LE(buyTokenAmount, 8);
     data.writeBigUInt64LE(maxSolCost, 16);
-    trackVolume.copy(data, 24);
+    data[24] = trackVolume;
   }
 
   // Build accounts
@@ -607,20 +634,20 @@ export function buildPumpFunSellInstructions(
   const {
     payer,
     inputMint,
+    outputMint = SOL_TOKEN_ACCOUNT,
 	  inputAmount,
 	  slippageBasisPoints = BigInt(1000),
 	  fixedOutputAmount,
 	  createOutputMintAta = false,
 	  closeInputMintAta = false,
 	  protocolParams,
-	  usePumpFunV2 = false,
 	} = params;
 
-	if (usePumpFunV2 || protocolParams.useV2Ix || isUsablePubkey(protocolParams.quoteMint)) {
+	if (isUsablePubkey(protocolParams.quoteMint)) {
 	  return buildPumpFunSellV2Instructions({
 	    ...params,
+	    outputMint,
 	    createOutputMintAta,
-	    usePumpFunV2: true,
 	  });
 	}
 
@@ -740,6 +767,7 @@ export function buildPumpFunBuyV2Instructions(
 ): TransactionInstruction[] {
   const {
     payer,
+    inputMint = SOL_TOKEN_ACCOUNT,
     outputMint,
     inputAmount,
     slippageBasisPoints = BigInt(1000),
@@ -767,6 +795,7 @@ export function buildPumpFunBuyV2Instructions(
 
   const baseTokenProgram = effectivePumpMintTokenProgram(outputMint, protocolParams);
   const quoteMint = effectiveQuoteMint(protocolParams);
+  validateV2BuyQuoteMint(inputMint, quoteMint);
   const quoteTokenProgram = TOKEN_PROGRAM_ID;
 
   const associatedBaseBondingCurve = associatedTokenAddress(
@@ -907,6 +936,7 @@ export function buildPumpFunSellV2Instructions(
   const {
     payer,
     inputMint,
+    outputMint = SOL_TOKEN_ACCOUNT,
     inputAmount,
     slippageBasisPoints = BigInt(1000),
     fixedOutputAmount,
@@ -932,6 +962,7 @@ export function buildPumpFunSellV2Instructions(
 
   const baseTokenProgram = effectivePumpMintTokenProgram(inputMint, protocolParams);
   const quoteMint = effectiveQuoteMint(protocolParams);
+  validateV2SellQuoteMint(outputMint, quoteMint);
   const quoteTokenProgram = TOKEN_PROGRAM_ID;
 
   const associatedBaseBondingCurve = associatedTokenAddress(

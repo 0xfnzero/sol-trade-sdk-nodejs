@@ -308,8 +308,85 @@ export interface PumpFunParams {
   feeRecipient?: PublicKey;
   /** PumpFun V2 quote mint; omit or default pubkey for WSOL. */
   quoteMint?: PublicKey;
-  /** Per-token V2 ix toggle; global `TradeConfig.usePumpfunV2` also enables it. */
-  useV2Ix?: boolean;
+}
+
+export interface ParserPumpFunTradeEvent {
+  mint?: string | PublicKey;
+  bonding_curve?: string | PublicKey;
+  associated_bonding_curve?: string | PublicKey;
+  creator?: string | PublicKey;
+  creator_vault?: string | PublicKey;
+  virtual_token_reserves?: bigint | number | string;
+  virtual_sol_reserves?: bigint | number | string;
+  virtual_quote_reserves?: bigint | number | string;
+  real_token_reserves?: bigint | number | string;
+  real_sol_reserves?: bigint | number | string;
+  real_quote_reserves?: bigint | number | string;
+  token_program?: string | PublicKey;
+  fee_recipient?: string | PublicKey;
+  quote_mint?: string | PublicKey;
+  is_cashback_coin?: boolean;
+  mayhem_mode?: boolean;
+}
+
+function parserPublicKey(value: string | PublicKey | undefined): PublicKey {
+  if (!value) return PublicKey.default;
+  if (value instanceof PublicKey) return value;
+  if (value === PublicKey.default.toBase58()) return PublicKey.default;
+  return new PublicKey(value);
+}
+
+function parserU64(value: bigint | number | string | undefined): number {
+  if (value === undefined || value === null || value === '') return 0;
+  const n = typeof value === 'bigint' ? value : BigInt(value);
+  if (n > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new TradeError(106, `parser u64 value ${n.toString()} exceeds JavaScript safe integer range`);
+  }
+  return Number(n);
+}
+
+/**
+ * Build PumpFun params directly from a sol-parser-sdk PumpFunTradeEvent.
+ * The parser's `virtual_quote_reserves` / `real_quote_reserves` are mapped to
+ * the SDK's quote reserve fields used by slippage calculation.
+ */
+export function pumpFunParamsFromParserTrade(
+  event: ParserPumpFunTradeEvent,
+  closeTokenAccountWhenSell?: boolean
+): PumpFunParams {
+  const hasVirtualQuote = event.virtual_quote_reserves !== undefined;
+  const hasRealQuote = event.real_quote_reserves !== undefined;
+  const virtualQuote =
+    hasVirtualQuote
+      ? parserU64(event.virtual_quote_reserves)
+      : parserU64(event.virtual_sol_reserves);
+  const realQuote =
+    hasRealQuote
+      ? parserU64(event.real_quote_reserves)
+      : parserU64(event.real_sol_reserves);
+  const creator = parserPublicKey(event.creator);
+  return {
+    bondingCurve: {
+      discriminator: 0,
+      account: parserPublicKey(event.bonding_curve),
+      virtualTokenReserves: parserU64(event.virtual_token_reserves),
+      virtualSolReserves: virtualQuote,
+      realTokenReserves: parserU64(event.real_token_reserves),
+      realSolReserves: realQuote,
+      tokenTotalSupply: 0,
+      complete: false,
+      creator,
+      isMayhemMode: !!event.mayhem_mode,
+      isCashbackCoin: !!event.is_cashback_coin,
+    },
+    associatedBondingCurve: parserPublicKey(event.associated_bonding_curve),
+    creatorVault: parserPublicKey(event.creator_vault),
+    tokenProgram: parserPublicKey(event.token_program),
+    closeTokenAccountWhenSell,
+    feeRecipient: parserPublicKey(event.fee_recipient),
+    quoteMint: parserPublicKey(event.quote_mint),
+    observedTradeCreator: creator.equals(PublicKey.default) ? undefined : creator,
+  };
 }
 
 /**
@@ -329,6 +406,40 @@ export interface PumpSwapParams {
   quoteTokenProgram: PublicKey;
   isMayhemMode: boolean;
   isCashbackCoin: boolean;
+}
+
+export interface ParserPumpSwapTradeEvent {
+  pool?: string | PublicKey;
+  base_mint?: string | PublicKey;
+  quote_mint?: string | PublicKey;
+  pool_base_token_account?: string | PublicKey;
+  pool_quote_token_account?: string | PublicKey;
+  pool_base_token_reserves?: bigint | number | string;
+  pool_quote_token_reserves?: bigint | number | string;
+  coin_creator_vault_ata?: string | PublicKey;
+  coin_creator_vault_authority?: string | PublicKey;
+  base_token_program?: string | PublicKey;
+  quote_token_program?: string | PublicKey;
+  is_mayhem_mode?: boolean;
+  is_cashback_coin?: boolean;
+}
+
+export function pumpSwapParamsFromParserTrade(event: ParserPumpSwapTradeEvent): PumpSwapParams {
+  return {
+    pool: parserPublicKey(event.pool),
+    baseMint: parserPublicKey(event.base_mint),
+    quoteMint: parserPublicKey(event.quote_mint),
+    poolBaseTokenAccount: parserPublicKey(event.pool_base_token_account),
+    poolQuoteTokenAccount: parserPublicKey(event.pool_quote_token_account),
+    poolBaseTokenReserves: parserU64(event.pool_base_token_reserves),
+    poolQuoteTokenReserves: parserU64(event.pool_quote_token_reserves),
+    coinCreatorVaultAta: parserPublicKey(event.coin_creator_vault_ata),
+    coinCreatorVaultAuthority: parserPublicKey(event.coin_creator_vault_authority),
+    baseTokenProgram: parserPublicKey(event.base_token_program),
+    quoteTokenProgram: parserPublicKey(event.quote_token_program),
+    isMayhemMode: !!event.is_mayhem_mode,
+    isCashbackCoin: !!event.is_cashback_coin,
+  };
 }
 
 /**
@@ -375,8 +486,18 @@ export interface RaydiumAmmV4Params {
   pcMint: PublicKey;
   tokenCoin: PublicKey;
   tokenPc: PublicKey;
-  coinReserve: number;
-  pcReserve: number;
+  ammOpenOrders: PublicKey;
+  ammTargetOrders: PublicKey;
+  serumProgram: PublicKey;
+  serumMarket: PublicKey;
+  serumBids: PublicKey;
+  serumAsks: PublicKey;
+  serumEventQueue: PublicKey;
+  serumCoinVaultAccount: PublicKey;
+  serumPcVaultAccount: PublicKey;
+  serumVaultSigner: PublicKey;
+  coinReserve: bigint;
+  pcReserve: bigint;
 }
 
 /**
@@ -424,8 +545,6 @@ export interface TradeConfig {
   gasStrategy?: GasFeeStrategyClass;
   /** Reserved for Rust parity (seed-optimized ATA); instruction builders may ignore if not wired. */
   useSeedOptimize?: boolean;
-  /** Use PumpFun V2 ix layout by default (`buy_v2` / `sell_v2` / quote mint support). */
-  usePumpfunV2?: boolean;
   /** Prefer assigning SWQOS submit threads from the end of the CPU core list. */
   swqosCoresFromEnd?: boolean;
   /** If true, best-effort background WSOL ATA creation after connect (Rust `create_wsol_ata_on_startup`). */
@@ -460,7 +579,6 @@ export class TradeConfigBuilder {
   private _checkMinTip: boolean = false;
   private _mevProtection: boolean = false;
   private _useSeedOptimize: boolean = true;
-  private _usePumpfunV2: boolean = false;
   private _swqosCoresFromEnd: boolean = true;
   private _createWsolAtaOnStartup: boolean = false;
   private _gasFeeStrategy?: GasFeeStrategyConfig;
@@ -512,11 +630,6 @@ export class TradeConfigBuilder {
     return this;
   }
 
-  usePumpfunV2(enabled: boolean): this {
-    this._usePumpfunV2 = enabled;
-    return this;
-  }
-
   swqosCoresFromEnd(enabled: boolean): this {
     this._swqosCoresFromEnd = enabled;
     return this;
@@ -560,7 +673,6 @@ export class TradeConfigBuilder {
       checkMinTip: this._checkMinTip,
       mevProtection: this._mevProtection,
       useSeedOptimize: this._useSeedOptimize,
-      usePumpfunV2: this._usePumpfunV2,
       swqosCoresFromEnd: this._swqosCoresFromEnd,
       createWsolAtaOnStartup: this._createWsolAtaOnStartup,
       gasFeeStrategy: this._gasFeeStrategy,
@@ -638,7 +750,6 @@ function mapPumpFunParams(p: PumpFunParams): PumpFunBuilderParams {
     closeTokenAccountWhenSell: p.closeTokenAccountWhenSell,
     feeRecipient: p.feeRecipient,
     quoteMint: p.quoteMint,
-    useV2Ix: p.useV2Ix,
   };
 }
 
@@ -1279,7 +1390,7 @@ export class TradingClient {
 	          createInputMintAta: params.createInputTokenAta ?? false,
 	          protocolParams: mapPumpFunParams(ext.params),
 	          useExactSolAmount: params.useExactSolAmount ?? true,
-	          usePumpFunV2: this._config.usePumpfunV2 ?? ext.params.useV2Ix ?? false,
+	          inputMint: this.getInputMint(params.inputTokenType),
 	        });
       }
       case DexType.PumpSwap: {
@@ -1387,8 +1498,18 @@ export class TradingClient {
           pcMint: p.pcMint,
           tokenCoin: p.tokenCoin,
           tokenPc: p.tokenPc,
-          coinReserve: BigInt(p.coinReserve),
-          pcReserve: BigInt(p.pcReserve),
+          ammOpenOrders: p.ammOpenOrders,
+          ammTargetOrders: p.ammTargetOrders,
+          serumProgram: p.serumProgram,
+          serumMarket: p.serumMarket,
+          serumBids: p.serumBids,
+          serumAsks: p.serumAsks,
+          serumEventQueue: p.serumEventQueue,
+          serumCoinVaultAccount: p.serumCoinVaultAccount,
+          serumPcVaultAccount: p.serumPcVaultAccount,
+          serumVaultSigner: p.serumVaultSigner,
+          coinReserve: p.coinReserve,
+          pcReserve: p.pcReserve,
         };
         return buildRaydiumAmmV4BuyInstructions({
           payer: this.payer.publicKey,
@@ -1462,7 +1583,7 @@ export class TradingClient {
 	          closeInputMintAta: params.closeMintTokenAta ?? false,
 	          createOutputMintAta: params.createOutputTokenAta ?? false,
 	          protocolParams: mapPumpFunParams(ext.params),
-	          usePumpFunV2: this._config.usePumpfunV2 ?? ext.params.useV2Ix ?? false,
+	          outputMint: this.getOutputMint(params.outputTokenType),
 	        });
       }
       case DexType.PumpSwap: {
@@ -1569,12 +1690,23 @@ export class TradingClient {
           pcMint: p.pcMint,
           tokenCoin: p.tokenCoin,
           tokenPc: p.tokenPc,
-          coinReserve: BigInt(p.coinReserve),
-          pcReserve: BigInt(p.pcReserve),
+          ammOpenOrders: p.ammOpenOrders,
+          ammTargetOrders: p.ammTargetOrders,
+          serumProgram: p.serumProgram,
+          serumMarket: p.serumMarket,
+          serumBids: p.serumBids,
+          serumAsks: p.serumAsks,
+          serumEventQueue: p.serumEventQueue,
+          serumCoinVaultAccount: p.serumCoinVaultAccount,
+          serumPcVaultAccount: p.serumPcVaultAccount,
+          serumVaultSigner: p.serumVaultSigner,
+          coinReserve: p.coinReserve,
+          pcReserve: p.pcReserve,
         };
         return buildRaydiumAmmV4SellInstructions({
           payer: this.payer.publicKey,
           inputMint: params.mint,
+          outputMint: this.getOutputMint(params.outputTokenType),
           inputAmount: inputAmt,
           slippageBasisPoints: slippage,
           fixedOutputAmount:
@@ -1677,10 +1809,18 @@ export class TradingClient {
     simulate?: boolean,
     execCtx?: TxExecContext
   ): Promise<TradeResult> {
-    const blockhash =
-      recentBlockhash ??
-      execCtx?.durableNonce?.nonceHash ??
-      (await this.connection.getLatestBlockhash(this.rpcCommitment())).blockhash;
+    const blockhash = recentBlockhash ?? execCtx?.durableNonce?.nonceHash;
+    if (!blockhash) {
+      return {
+        success: false,
+        signatures: [],
+        error: new TradeError(
+          105,
+          'recentBlockhash or durableNonce.nonceHash is required; trade execution hot path does not query RPC for blockhash'
+        ),
+        timings: [],
+      };
+    }
 
     const swqosList = this._config.swqosConfigs ?? [];
     const tradeType = execCtx?.tradeType ?? TradeType.Buy;

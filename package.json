@@ -1,6 +1,6 @@
 {
   "name": "sol-trade-sdk",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "High-performance Solana trading SDK with multi-protocol support",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
@@ -47,8 +47,8 @@
     "src"
   ],
   "scripts": {
-    "build": "tsup src/index.ts src/perf/index.ts --format cjs,esm --dts --clean",
-    "dev": "tsup src/index.ts src/perf/index.ts --format cjs,esm --dts --watch",
+    "build": "tsup src/index.ts src/cache/index.ts src/pool/index.ts src/rpc/index.ts src/swqos/index.ts src/trading/index.ts src/perf/index.ts --format cjs,esm --dts --clean",
+    "dev": "tsup src/index.ts src/cache/index.ts src/pool/index.ts src/rpc/index.ts src/swqos/index.ts src/trading/index.ts src/perf/index.ts --format cjs,esm --dts --watch",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
@@ -73,7 +73,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/0xfnzero/sol-trade-sdk-ts"
+    "url": "git+https://github.com/0xfnzero/sol-trade-sdk-nodejs.git"
   },
   "dependencies": {
     "@matrixai/quic": "^2.0.9",
