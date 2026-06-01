@@ -42,6 +42,23 @@ describe('sol-parser-sdk compatibility helpers', () => {
     expect(params.bondingCurve.realSolReserves).toBe(0);
   });
 
+  it('maps Solscan SOL quote mint to legacy PumpFun reserves', () => {
+    const params = pumpFunParamsFromParserTrade({
+      quote_mint: CONSTANTS.SOL_TOKEN_ACCOUNT.toBase58(),
+      virtual_token_reserves: 1_000_000n,
+      virtual_sol_reserves: 30_123_456_789n,
+      virtual_quote_reserves: 0n,
+      real_token_reserves: 900_000n,
+      real_sol_reserves: 123_456_789n,
+      real_quote_reserves: 0n,
+      token_program: CONSTANTS.TOKEN_PROGRAM.toBase58(),
+    });
+
+    expect(params.quoteMint?.toBase58()).toBe(PublicKey.default.toBase58());
+    expect(params.bondingCurve.virtualSolReserves).toBe(30_123_456_789);
+    expect(params.bondingCurve.realSolReserves).toBe(123_456_789);
+  });
+
   it('maps PumpSwap creator vault accounts from parser events', () => {
     const vault = PublicKey.unique();
     const authority = PublicKey.unique();

@@ -66,8 +66,8 @@ import {
 import { handleWsol, closeWsol as wsolCloseIx } from './common/wsol-manager';
 import { computeBudgetInstructions } from './common/compute-budget';
 import { confirmAnyTransactionSignature } from './common/confirm-any-signature';
-import { mapWithConcurrencyLimit } from './common/map-pool';
 import { InstructionProcessor, Prefetch } from './execution/execution';
+import type { SwqosClient as RuntimeSwqosClient } from './swqos/clients';
 
 // ============== Enums ==============
 
@@ -169,6 +169,21 @@ export interface SwqosConfig {
   transport?: SwqosTransport;
   astralaneTransport?: AstralaneTransport;
   swqosOnly?: boolean;
+}
+
+function normalizeSwqosConfigs(rpcUrl: string, configs: SwqosConfig[]): SwqosConfig[] {
+  if (configs.length === 0 || configs.some((c) => c.type === SwqosType.Default)) {
+    return configs;
+  }
+  return [
+    ...configs,
+    {
+      type: SwqosType.Default,
+      region: SwqosRegion.Default,
+      apiKey: '',
+      customUrl: rpcUrl,
+    },
+  ];
 }
 
 /**
@@ -336,6 +351,13 @@ function parserPublicKey(value: string | PublicKey | undefined): PublicKey {
   return new PublicKey(value);
 }
 
+function pumpFunQuoteMintForLayout(quoteMint: PublicKey): PublicKey {
+  if (quoteMint.equals(PublicKey.default) || quoteMint.equals(SDK_CONSTANTS.SOL_TOKEN_ACCOUNT)) {
+    return PublicKey.default;
+  }
+  return quoteMint;
+}
+
 function parserU64(value: bigint | number | string | undefined): number {
   if (value === undefined || value === null || value === '') return 0;
   const n = typeof value === 'bigint' ? value : BigInt(value);
@@ -354,14 +376,17 @@ export function pumpFunParamsFromParserTrade(
   event: ParserPumpFunTradeEvent,
   closeTokenAccountWhenSell?: boolean
 ): PumpFunParams {
+  const quoteMint = parserPublicKey(event.quote_mint);
+  const legacySolQuote =
+    quoteMint.equals(PublicKey.default) || quoteMint.equals(SDK_CONSTANTS.SOL_TOKEN_ACCOUNT);
   const hasVirtualQuote = event.virtual_quote_reserves !== undefined;
   const hasRealQuote = event.real_quote_reserves !== undefined;
   const virtualQuote =
-    hasVirtualQuote
+    !legacySolQuote && hasVirtualQuote
       ? parserU64(event.virtual_quote_reserves)
       : parserU64(event.virtual_sol_reserves);
   const realQuote =
-    hasRealQuote
+    !legacySolQuote && hasRealQuote
       ? parserU64(event.real_quote_reserves)
       : parserU64(event.real_sol_reserves);
   const creator = parserPublicKey(event.creator);
@@ -384,7 +409,7 @@ export function pumpFunParamsFromParserTrade(
     tokenProgram: parserPublicKey(event.token_program),
     closeTokenAccountWhenSell,
     feeRecipient: parserPublicKey(event.fee_recipient),
-    quoteMint: parserPublicKey(event.quote_mint),
+    quoteMint: pumpFunQuoteMintForLayout(quoteMint),
     observedTradeCreator: creator.equals(PublicKey.default) ? undefined : creator,
   };
 }
@@ -555,9 +580,8 @@ export interface TradeConfig {
    */
   middlewareManager?: MiddlewareManager;
   /**
-   * Cap concurrent SWQOS `sendTransaction` calls when multiple gas/SWQOS tasks run.
-   * Rust uses a bounded worker pool (`max_sender_concurrency`); set this to approximate that (e.g. 8–18).
-   * Omit or set ≥ task count to keep previous behavior (all tasks parallel).
+   * Deprecated compatibility field. Submit hot path starts every SWQOS/default RPC route
+   * immediately so the required default RPC lane is never delayed behind a local cap.
    */
   maxSwqosSubmitConcurrency?: number;
 }
@@ -595,7 +619,7 @@ export class TradeConfigBuilder {
   }
 
   swqosConfigs(configs: SwqosConfig[]): this {
-    this._swqosConfigs = configs;
+    this._swqosConfigs = normalizeSwqosConfigs(this._rpcUrl, configs);
     return this;
   }
 
@@ -667,7 +691,7 @@ export class TradeConfigBuilder {
   build(): TradeConfig {
     return {
       rpcUrl: this._rpcUrl,
-      swqosConfigs: this._swqosConfigs,
+      swqosConfigs: normalizeSwqosConfigs(this._rpcUrl, this._swqosConfigs),
       commitment: this._commitment,
       logEnabled: this._logEnabled,
       checkMinTip: this._checkMinTip,
@@ -794,8 +818,8 @@ interface TxExecContext {
   durableNonce?: DurableNonceInfo;
 }
 
-/** Rust `async_executor`: `SUBMIT_TIMEOUT_SECS` when `wait_transaction_confirmed` is false. */
-const SWQOS_SUBMIT_TIMEOUT_MS_WHEN_NO_CONFIRM = 2000;
+/** Rust `async_executor`: `FAST_SUBMIT_RESULT_TIMEOUT` when `wait_transaction_confirmed` is false. */
+const SWQOS_SUBMIT_TIMEOUT_MS_WHEN_NO_CONFIRM = 5000;
 
 /** Rust `executor::simulate_transaction` / `RpcSimulateTransactionConfig` (processed, inner ix, no sig verify). */
 export const RUST_PARITY_SIMULATE_CONFIG: SimulateTransactionConfig = {
@@ -936,6 +960,37 @@ interface SwqosGasTask {
   strategyType?: GasFeeStrategyType;
 }
 
+interface SwqosSubmitResult {
+  ok: boolean;
+  sig?: string;
+  err?: unknown;
+  task: SwqosGasTask;
+  duration: number;
+}
+
+async function collectUntilFirstSuccess<R>(
+  promises: readonly Promise<R>[],
+  isSuccess: (result: R) => boolean
+): Promise<R[]> {
+  if (promises.length === 0) return [];
+  const results: R[] = [];
+  const pending = new Map(
+    promises.map((promise, index) => [
+      index,
+      promise.then((result) => ({ index, result })),
+    ])
+  );
+
+  while (pending.size > 0) {
+    const { index, result } = await Promise.race(pending.values());
+    pending.delete(index);
+    results.push(result);
+    if (isSuccess(result)) return results;
+  }
+
+  return results;
+}
+
 /**
  * Rust `async_executor::execute_parallel`: `gas_fee_strategy.get_strategies(trade_type)` × each SWQOS client,
  * with `check_min_tip` applied per (client, strategy row).
@@ -952,7 +1007,8 @@ function expandSwqosGasTasks(
   swqosMod: typeof import('./swqos/clients'),
   mevProtection: boolean | undefined,
   rpcUrl: string,
-  logEnabled: boolean
+  logEnabled: boolean,
+  getClient?: (cfg: SwqosConfig) => RuntimeSwqosClient
 ): SwqosGasTask[] {
   const out: SwqosGasTask[] = [];
 
@@ -980,10 +1036,9 @@ function expandSwqosGasTasks(
       for (const row of matching) {
         const tipLamports = Math.floor(row.value.tip * 1e9);
         if (checkMinTip && withTip && cfg.type !== SwqosType.Default) {
-          const client = swqosMod.ClientFactory.createClient(
-            mapSwqosToClientConfig(cfg, mevProtection),
-            rpcUrl
-          );
+          const client =
+            getClient?.(cfg) ??
+            swqosMod.ClientFactory.createClient(mapSwqosToClientConfig(cfg, mevProtection), rpcUrl);
           const minLamports = Math.ceil(client.minTipSol() * 1_000_000_000);
           if (tipLamports < minLamports) {
             if (logEnabled) {
@@ -1041,7 +1096,8 @@ function filterSwqosConfigsByMinTip(
   gas: GasFeeStrategyConfig | undefined,
   mevProtection: boolean | undefined,
   rpcUrl: string,
-  logEnabled: boolean
+  logEnabled: boolean,
+  getClient?: (cfg: SwqosConfig) => RuntimeSwqosClient
 ): SwqosConfig[] {
   const tipLamports = gas
     ? tradeType === TradeType.Buy
@@ -1054,10 +1110,9 @@ function filterSwqosConfigsByMinTip(
       out.push(cfg);
       continue;
     }
-    const client = swqosMod.ClientFactory.createClient(
-      mapSwqosToClientConfig(cfg, mevProtection),
-      rpcUrl
-    );
+    const client =
+      getClient?.(cfg) ??
+      swqosMod.ClientFactory.createClient(mapSwqosToClientConfig(cfg, mevProtection), rpcUrl);
     const minLamports = Math.ceil(client.minTipSol() * 1_000_000_000);
     if (tipLamports < minLamports) {
       if (logEnabled) {
@@ -1076,15 +1131,15 @@ function resolveTipRecipientPubkey(
   swqosMod: typeof import('./swqos/clients'),
   configs: SwqosConfig[],
   mevProtection: boolean | undefined,
-  rpcUrl: string
+  rpcUrl: string,
+  getClient?: (cfg: SwqosConfig) => RuntimeSwqosClient
 ): PublicKey | null {
   const preferred =
     configs.find((c) => c.type !== SwqosType.Default) ?? configs[0];
   if (!preferred) return null;
-  const client = swqosMod.ClientFactory.createClient(
-    mapSwqosToClientConfig(preferred, mevProtection),
-    rpcUrl
-  );
+  const client =
+    getClient?.(preferred) ??
+    swqosMod.ClientFactory.createClient(mapSwqosToClientConfig(preferred, mevProtection), rpcUrl);
   const acc = client.getTipAccount();
   if (!acc) return null;
   try {
@@ -1103,14 +1158,54 @@ export class TradingClient {
   private _config: TradeConfig;
   private middlewares: Middleware[] = [];
   private _logEnabled: boolean;
+  private _swqosModulePromise?: Promise<typeof import('./swqos/clients')>;
+  private _swqosClientCache: Map<string, RuntimeSwqosClient> = new Map();
 
   constructor(payer: Keypair, config: TradeConfig) {
     this.payer = payer;
-    this._config = config;
+    this._config = {
+      ...config,
+      swqosConfigs: normalizeSwqosConfigs(config.rpcUrl, config.swqosConfigs ?? []),
+    };
     this.connection = new Connection(config.rpcUrl, {
       commitment: config.commitment ?? 'confirmed',
     });
     this._logEnabled = config.logEnabled ?? true;
+  }
+
+  private getSwqosModule(): Promise<typeof import('./swqos/clients')> {
+    this._swqosModulePromise ??= import('./swqos/clients');
+    return this._swqosModulePromise;
+  }
+
+  private swqosClientCacheKey(cfg: SwqosConfig): string {
+    return JSON.stringify([
+      this._config.rpcUrl,
+      this._config.mevProtection ?? false,
+      cfg.type,
+      cfg.region ?? null,
+      cfg.customUrl ?? null,
+      cfg.apiKey ?? null,
+      cfg.transport ?? null,
+      cfg.astralaneTransport ?? null,
+      cfg.swqosOnly ?? null,
+      cfg.mevProtection ?? null,
+    ]);
+  }
+
+  private getSwqosClient(
+    swqosMod: typeof import('./swqos/clients'),
+    cfg: SwqosConfig
+  ): RuntimeSwqosClient {
+    const key = this.swqosClientCacheKey(cfg);
+    const cached = this._swqosClientCache.get(key);
+    if (cached) return cached;
+    const client = swqosMod.ClientFactory.createClient(
+      mapSwqosToClientConfig(cfg, this._config.mevProtection),
+      this._config.rpcUrl
+    );
+    this._swqosClientCache.set(key, client);
+    return client;
   }
 
   /** Get the current configuration */
@@ -1388,6 +1483,7 @@ export class TradingClient {
               : undefined,
 	          createOutputMintAta: params.createMintAta ?? true,
 	          createInputMintAta: params.createInputTokenAta ?? false,
+	          closeInputMintAta: params.closeInputTokenAta ?? false,
 	          protocolParams: mapPumpFunParams(ext.params),
 	          useExactSolAmount: params.useExactSolAmount ?? true,
 	          inputMint: this.getInputMint(params.inputTokenType),
@@ -1826,8 +1922,10 @@ export class TradingClient {
     const tradeType = execCtx?.tradeType ?? TradeType.Buy;
     const withTip = execCtx?.withTip ?? true;
 
-    const swqosMod =
-      swqosList.length > 0 ? await import('./swqos/clients') : null;
+    const swqosMod = swqosList.length > 0 ? await this.getSwqosModule() : null;
+    const swqosClientForConfig = swqosMod
+      ? (cfg: SwqosConfig) => this.getSwqosClient(swqosMod, cfg)
+      : undefined;
 
     let effectiveSwqos = swqosList;
     if (swqosMod && !withTip) {
@@ -1873,7 +1971,8 @@ export class TradingClient {
         gasMerged,
         this._config.mevProtection,
         this._config.rpcUrl,
-        this._logEnabled
+        this._logEnabled,
+        swqosClientForConfig
       );
       if (effectiveSwqos.length === 0) {
         return {
@@ -1908,7 +2007,8 @@ export class TradingClient {
         swqosMod,
         this._config.mevProtection,
         this._config.rpcUrl,
-        this._logEnabled
+        this._logEnabled,
+        swqosClientForConfig
       );
       if (swqosTasks.length === 0) {
         return {
@@ -1992,7 +2092,8 @@ export class TradingClient {
                 swqosMod,
                 [t.cfg],
                 this._config.mevProtection,
-                this._config.rpcUrl
+                this._config.rpcUrl,
+                swqosClientForConfig
               )
             : null;
           const txSim = buildSignedVersionedTransaction(
@@ -2053,19 +2154,16 @@ export class TradingClient {
       if (swqosMod) {
         const timings: SwqosTiming[] = [];
         const signatures: string[] = [];
-        const submitConcurrency =
-          this._config.maxSwqosSubmitConcurrency ?? swqosTasks.length;
-        const results = await mapWithConcurrencyLimit(
-          swqosTasks,
-          submitConcurrency,
-          async (task) => {
-            const t0 = performance.now();
+        const submitTask = async (task: SwqosGasTask): Promise<SwqosSubmitResult> => {
+          const t0 = performance.now();
+          try {
             const tipPk = withTip
               ? resolveTipRecipientPubkey(
                   swqosMod,
                   [task.cfg],
                   this._config.mevProtection,
-                  this._config.rpcUrl
+                  this._config.rpcUrl,
+                  swqosClientForConfig
                 )
               : null;
             const tx = buildSignedVersionedTransaction(
@@ -2075,36 +2173,36 @@ export class TradingClient {
               lookupTableAccount
             );
             const raw = Buffer.from(tx.serialize());
-            const client = swqosMod.ClientFactory.createClient(
-              mapSwqosToClientConfig(task.cfg, this._config.mevProtection),
-              this._config.rpcUrl
-            );
-            try {
-              const pending = client.sendTransaction(tradeType, raw, false);
-              const sig = await (!waitConfirmed
-                ? Promise.race([
-                    pending,
-                    new Promise<never>((_, reject) =>
-                      setTimeout(
-                        () =>
-                          reject(
-                            new Error(
-                              `SWQOS submit timed out after ${SWQOS_SUBMIT_TIMEOUT_MS_WHEN_NO_CONFIRM}ms`
-                            )
-                          ),
-                        SWQOS_SUBMIT_TIMEOUT_MS_WHEN_NO_CONFIRM
-                      )
-                    ),
-                  ])
-                : pending);
-              const duration = Math.round((performance.now() - t0) * 1000);
-              return { ok: true as const, sig, task, duration };
-            } catch (e) {
-              const duration = Math.round((performance.now() - t0) * 1000);
-              return { ok: false as const, err: e, task, duration };
-            }
+            const client = swqosClientForConfig!(task.cfg);
+            const pending = client.sendTransaction(tradeType, raw, false);
+            const sig = await (!waitConfirmed
+              ? Promise.race([
+                  pending,
+                  new Promise<never>((_, reject) =>
+                    setTimeout(
+                      () =>
+                        reject(
+                          new Error(
+                            `SWQOS submit timed out after ${SWQOS_SUBMIT_TIMEOUT_MS_WHEN_NO_CONFIRM}ms`
+                          )
+                        ),
+                      SWQOS_SUBMIT_TIMEOUT_MS_WHEN_NO_CONFIRM
+                    )
+                  ),
+                ])
+              : pending);
+            const duration = Math.round((performance.now() - t0) * 1000);
+            return { ok: true, sig, task, duration };
+          } catch (e) {
+            const duration = Math.round((performance.now() - t0) * 1000);
+            return { ok: false, err: e, task, duration };
           }
-        );
+        };
+
+        const submitPromises = swqosTasks.map((task) => submitTask(task));
+        const results = waitConfirmed
+          ? await Promise.all(submitPromises)
+          : await collectUntilFirstSuccess(submitPromises, (result) => result.ok);
 
         for (const v of results) {
           timings.push({
@@ -2113,7 +2211,7 @@ export class TradingClient {
             gasFeeStrategyType: v.task.strategyType,
           });
           if (v.ok) {
-            signatures.push(v.sig);
+            if (v.sig) signatures.push(v.sig);
           }
         }
 
@@ -2199,7 +2297,7 @@ export function createTradeConfig(
   const { commitment, logEnabled, ...rest } = options ?? {};
   return {
     rpcUrl,
-    swqosConfigs,
+    swqosConfigs: normalizeSwqosConfigs(rpcUrl, swqosConfigs),
     ...rest,
     commitment: commitment ?? 'confirmed',
     logEnabled: logEnabled ?? true,

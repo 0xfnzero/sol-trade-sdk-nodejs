@@ -285,27 +285,34 @@ export class HotPathExecutor {
       }
     };
 
-    // Race all submissions - first success wins
     const promises = clients.map(submitToClient);
 
-    try {
-      // Use Promise.any for first-success-wins
-      const result = await Promise.any(promises);
-      return result;
-    } catch {
-      // All failed - aggregate errors
-      const results = await Promise.allSettled(promises);
-      const errors = results
-        .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
-        .map((r) => r.reason);
-      return {
-        signature: '',
-        success: false,
-        error: `All parallel submissions failed: ${errors.join(', ')}`,
-        latencyMs: 0,
-        blockhashUsed: '',
-      };
+    const pending = new Map(
+      promises.map((promise, index) => [
+        index,
+        promise.then((result) => ({ index, result })),
+      ])
+    );
+    const errors: string[] = [];
+
+    while (pending.size > 0) {
+      const { index, result } = await Promise.race(pending.values());
+      pending.delete(index);
+      if (result.success) {
+        return result;
+      }
+      if (result.error) {
+        errors.push(`${result.swqosType ?? 'unknown'}: ${result.error}`);
+      }
     }
+
+    return {
+      signature: '',
+      success: false,
+      error: `All parallel submissions failed${errors.length ? `: ${errors.join(', ')}` : ''}`,
+      latencyMs: 0,
+      blockhashUsed: '',
+    };
   }
 
   /**

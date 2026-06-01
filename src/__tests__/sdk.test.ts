@@ -9,6 +9,7 @@ import {
   GasFeeStrategyType,
   createGasFeeStrategy,
   SwqosType,
+  SwqosRegion,
   TradeType,
   TradeConfigBuilder,
   MiddlewareManager,
@@ -209,6 +210,21 @@ describe('createTradeConfig', () => {
     });
     expect(cfg.maxSwqosSubmitConcurrency).toBe(4);
     expect(cfg.mevProtection).toBe(true);
+  });
+
+  it('adds Default RPC when SWQOS providers are configured', () => {
+    const cfg = createTradeConfig('https://x', [
+      { type: SwqosType.Jito, region: SwqosRegion.Frankfurt, apiKey: 'uuid' },
+    ]);
+    expect(cfg.swqosConfigs.map((c) => c.type)).toEqual([
+      SwqosType.Jito,
+      SwqosType.Default,
+    ]);
+  });
+
+  it('does not add Default RPC when no SWQOS providers are configured', () => {
+    const cfg = TradeConfigBuilder.create('https://x').build();
+    expect(cfg.swqosConfigs).toHaveLength(0);
   });
 });
 

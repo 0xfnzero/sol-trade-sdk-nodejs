@@ -15,7 +15,6 @@ import {
 } from "@solana/web3.js";
 import {
   getAssociatedTokenAddressSync,
-  createAssociatedTokenAccountInstruction,
   createAssociatedTokenAccountIdempotentInstruction,
   TOKEN_PROGRAM_ID,
   TOKEN_2022_PROGRAM_ID,
@@ -283,7 +282,7 @@ export interface PumpFunParams {
   closeTokenAccountWhenSell?: boolean;
   /** From parser/gRPC (`tradeEvent.feeRecipient`); default pubkey → random pool */
   feeRecipient?: PublicKey;
-  /** Quote mint for V2 instructions; default means WSOL. */
+  /** Layout selector: default/Solscan SOL sentinel keeps legacy SOL; WSOL/USDC selects V2. */
   quoteMint?: PublicKey;
 }
 
@@ -296,6 +295,7 @@ export interface PumpFunBuildBuyParams {
   fixedOutputAmount?: bigint;
   createOutputMintAta?: boolean;
   createInputMintAta?: boolean;
+  closeInputMintAta?: boolean;
   protocolParams: PumpFunParams;
   useExactSolAmount?: boolean;
 }
@@ -397,6 +397,10 @@ function effectiveQuoteMint(protocolParams: PumpFunParams): PublicKey {
   return protocolParams.quoteMint;
 }
 
+function usesPumpFunV2Layout(protocolParams: PumpFunParams): boolean {
+  return isUsablePubkey(protocolParams.quoteMint) && !protocolParams.quoteMint.equals(SOL_TOKEN_ACCOUNT);
+}
+
 function isSolQuoteMint(mint: PublicKey): boolean {
   return mint.equals(SOL_TOKEN_ACCOUNT) || mint.equals(NATIVE_MINT);
 }
@@ -431,6 +435,36 @@ function associatedTokenAddress(mint: PublicKey, owner: PublicKey, tokenProgram:
     tokenProgram,
     SPL_ASSOCIATED_TOKEN_PROGRAM_ID
   );
+}
+
+function pushCreateOrWrapUserTokenAccount(
+  instructions: TransactionInstruction[],
+  payer: PublicKey,
+  ata: PublicKey,
+  mint: PublicKey,
+  tokenProgram: PublicKey,
+  amount: bigint
+): void {
+  instructions.push(
+    createAssociatedTokenAccountIdempotentInstruction(
+      payer,
+      ata,
+      payer,
+      mint,
+      tokenProgram,
+      SPL_ASSOCIATED_TOKEN_PROGRAM_ID
+    )
+  );
+  if (mint.equals(NATIVE_MINT)) {
+    instructions.push(
+      SystemProgram.transfer({
+        fromPubkey: payer,
+        toPubkey: ata,
+        lamports: amount,
+      })
+    );
+    instructions.push(createSyncNativeInstruction(ata));
+  }
 }
 
 function getBuyTokenAmountFromSolAmount(
@@ -493,15 +527,17 @@ export function buildPumpFunBuyInstructions(
 	  fixedOutputAmount,
 	  createOutputMintAta = true,
 	  createInputMintAta = false,
+	  closeInputMintAta = false,
 	  protocolParams,
 	  useExactSolAmount = true,
 	} = params;
 
-	if (isUsablePubkey(protocolParams.quoteMint)) {
+	if (usesPumpFunV2Layout(protocolParams)) {
 	  return buildPumpFunBuyV2Instructions({
 	    ...params,
 	    inputMint,
 	    createInputMintAta,
+	    closeInputMintAta,
 	  });
 	}
 
@@ -547,12 +583,13 @@ export function buildPumpFunBuyInstructions(
   // Create ATA if needed
   if (createOutputMintAta) {
     instructions.push(
-      createAssociatedTokenAccountInstruction(
+      createAssociatedTokenAccountIdempotentInstruction(
         payerPubkey,
         userTokenAccount,
         payerPubkey,
         outputMint,
-        tokenProgramId
+        tokenProgramId,
+        SPL_ASSOCIATED_TOKEN_PROGRAM_ID
       )
     );
   }
@@ -572,11 +609,15 @@ export function buildPumpFunBuyInstructions(
 
   // Build instruction data
   let data: Buffer;
-  if (useExactSolAmount) {
+  if (fixedOutputAmount !== undefined) {
+    data = Buffer.alloc(25);
+    PUMPFUN_BUY_DISCRIMINATOR.copy(data, 0);
+    data.writeBigUInt64LE(fixedOutputAmount, 8);
+    data.writeBigUInt64LE(inputAmount, 16);
+    data[24] = trackVolume;
+  } else if (useExactSolAmount) {
     // buy_exact_sol_in(spendable_sol_in: u64, min_tokens_out: u64, track_volume)
-    const minTokensOut = fixedOutputAmount
-      ? fixedOutputAmount
-      : calculateWithSlippageSell(buyTokenAmount, slippageBasisPoints);
+    const minTokensOut = calculateWithSlippageSell(buyTokenAmount, slippageBasisPoints);
     data = Buffer.alloc(25);
     PUMPFUN_BUY_EXACT_SOL_IN_DISCRIMINATOR.copy(data, 0);
     data.writeBigUInt64LE(inputAmount, 8);
@@ -643,7 +684,7 @@ export function buildPumpFunSellInstructions(
 	  protocolParams,
 	} = params;
 
-	if (isUsablePubkey(protocolParams.quoteMint)) {
+	if (usesPumpFunV2Layout(protocolParams)) {
 	  return buildPumpFunSellV2Instructions({
 	    ...params,
 	    outputMint,
@@ -774,6 +815,7 @@ export function buildPumpFunBuyV2Instructions(
     fixedOutputAmount,
     createOutputMintAta = true,
     createInputMintAta = false,
+    closeInputMintAta = false,
     protocolParams,
     useExactSolAmount = true,
   } = params;
@@ -853,37 +895,42 @@ export function buildPumpFunBuyV2Instructions(
     );
   }
 
-  if (createInputMintAta) {
-    instructions.push(
-      createAssociatedTokenAccountIdempotentInstruction(
-        payerPubkey,
-        associatedQuoteUser,
-        payerPubkey,
-        quoteMint,
-        quoteTokenProgram,
-        SPL_ASSOCIATED_TOKEN_PROGRAM_ID
-      )
-    );
-  }
-
   const buyTokenAmount = fixedOutputAmount
     ? fixedOutputAmount
     : getBuyTokenAmountFromSolAmount(inputAmount, bondingCurve, creator);
   const maxSolCost = calculateWithSlippageBuy(inputAmount, slippageBasisPoints);
   let data: Buffer;
-  if (useExactSolAmount) {
-    const minTokensOut = fixedOutputAmount
-      ? fixedOutputAmount
-      : calculateWithSlippageSell(buyTokenAmount, slippageBasisPoints);
+  let quoteAmountToFund: bigint;
+  if (fixedOutputAmount !== undefined) {
+    data = Buffer.alloc(24);
+    PUMPFUN_BUY_V2_DISCRIMINATOR.copy(data, 0);
+    data.writeBigUInt64LE(fixedOutputAmount, 8);
+    data.writeBigUInt64LE(inputAmount, 16);
+    quoteAmountToFund = inputAmount;
+  } else if (useExactSolAmount) {
+    const minTokensOut = calculateWithSlippageSell(buyTokenAmount, slippageBasisPoints);
     data = Buffer.alloc(24);
     PUMPFUN_BUY_EXACT_QUOTE_IN_V2_DISCRIMINATOR.copy(data, 0);
     data.writeBigUInt64LE(inputAmount, 8);
     data.writeBigUInt64LE(minTokensOut, 16);
+    quoteAmountToFund = inputAmount;
   } else {
     data = Buffer.alloc(24);
     PUMPFUN_BUY_V2_DISCRIMINATOR.copy(data, 0);
     data.writeBigUInt64LE(buyTokenAmount, 8);
     data.writeBigUInt64LE(maxSolCost, 16);
+    quoteAmountToFund = maxSolCost;
+  }
+
+  if (createInputMintAta) {
+    pushCreateOrWrapUserTokenAccount(
+      instructions,
+      payerPubkey,
+      associatedQuoteUser,
+      quoteMint,
+      quoteTokenProgram,
+      quoteAmountToFund
+    );
   }
 
   const keys: AccountMeta[] = [
@@ -923,6 +970,18 @@ export function buildPumpFunBuyV2Instructions(
       data,
     })
   );
+
+  if (closeInputMintAta && quoteMint.equals(NATIVE_MINT)) {
+    instructions.push(
+      createCloseAccountInstruction(
+        associatedQuoteUser,
+        payerPubkey,
+        payerPubkey,
+        [],
+        quoteTokenProgram
+      )
+    );
+  }
 
   return instructions;
 }

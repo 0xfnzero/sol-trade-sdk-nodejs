@@ -14,10 +14,8 @@ import {
 } from "@solana/web3.js";
 import {
   getAssociatedTokenAddressSync,
-  createAssociatedTokenAccountInstruction,
-  TOKEN_PROGRAM_ID,
+  createAssociatedTokenAccountIdempotentInstruction,
   createCloseAccountInstruction,
-  NATIVE_MINT,
   createSyncNativeInstruction,
 } from "@solana/spl-token";
 
@@ -239,46 +237,50 @@ export function buildRaydiumCpmmBuyInstructions(
 
   // Determine swap direction
   const isBaseIn = baseMint.equals(WSOL_TOKEN_ACCOUNT) || baseMint.equals(USDC_TOKEN_ACCOUNT);
-  const mintTokenProgram = isBaseIn ? quoteTokenProgram : baseTokenProgram;
+  const inputMint = isBaseIn ? baseMint : quoteMint;
+  const inputTokenProgram = isBaseIn ? baseTokenProgram : quoteTokenProgram;
+  const expectedOutputMint = isBaseIn ? quoteMint : baseMint;
+  const outputTokenProgram = isBaseIn ? quoteTokenProgram : baseTokenProgram;
+  if (!outputMint.equals(expectedOutputMint)) {
+    throw new Error(`outputMint must match Raydium CPMM pool side ${expectedOutputMint.toBase58()}`);
+  }
 
   // Derive pool state
   const poolState = protocolParams.poolState && !protocolParams.poolState.equals(PublicKey.default)
     ? protocolParams.poolState
     : getRaydiumCpmmPoolPda(ammConfig, baseMint, quoteMint);
 
-  // Calculate output
-  const swapResult = computeRaydiumCpmmSwapAmount(
-    baseReserve,
-    quoteReserve,
-    isBaseIn,
-    inputAmount,
-    slippageBasisPoints
-  );
-  const minimumAmountOut = fixedOutputAmount || swapResult.minAmountOut;
-
-  // Determine input/output mints
-  const inputMint = isWsol ? WSOL_TOKEN_ACCOUNT : USDC_TOKEN_ACCOUNT;
+  // Calculate output only for base-in swaps; fixed-output swaps pass max input directly.
+  const minimumAmountOut =
+    fixedOutputAmount ??
+    computeRaydiumCpmmSwapAmount(
+      baseReserve,
+      quoteReserve,
+      isBaseIn,
+      inputAmount,
+      slippageBasisPoints
+    ).minAmountOut;
 
   // Derive user token accounts
   const inputTokenAccount = getAssociatedTokenAddressSync(
     inputMint,
     payerPubkey,
     true,
-    TOKEN_PROGRAM_ID
+    inputTokenProgram
   );
   const outputTokenAccount = getAssociatedTokenAddressSync(
     outputMint,
     payerPubkey,
     true,
-    mintTokenProgram
+    outputTokenProgram
   );
 
   // Derive vault accounts
   const inputVaultAccount = ((): PublicKey => {
-    if (isWsol && baseMint.equals(inputMint) && baseVault && !baseVault.equals(PublicKey.default)) {
+    if (baseMint.equals(inputMint) && baseVault && !baseVault.equals(PublicKey.default)) {
       return baseVault;
     }
-    if (!isWsol && quoteMint.equals(inputMint) && quoteVault && !quoteVault.equals(PublicKey.default)) {
+    if (quoteMint.equals(inputMint) && quoteVault && !quoteVault.equals(PublicKey.default)) {
       return quoteVault;
     }
     return getRaydiumCpmmVaultPda(poolState, inputMint);
@@ -299,39 +301,51 @@ export function buildRaydiumCpmmBuyInstructions(
     ? observationState
     : getRaydiumCpmmObservationStatePda(poolState);
 
-  // Handle WSOL wrapping
-  if (createInputMintAta && isWsol) {
-    const wsolAta = getAssociatedTokenAddressSync(NATIVE_MINT, payerPubkey, true);
+  // Handle input account creation/wrapping
+  if (createInputMintAta) {
+    const isInputWsol = inputMint.equals(WSOL_TOKEN_ACCOUNT);
     instructions.push(
-      createAssociatedTokenAccountInstruction(
+      createAssociatedTokenAccountIdempotentInstruction(
         payerPubkey,
-        wsolAta,
+        inputTokenAccount,
         payerPubkey,
-        NATIVE_MINT,
-        TOKEN_PROGRAM_ID
+        inputMint,
+        inputTokenProgram
       )
     );
-    instructions.push(createSyncNativeInstruction(wsolAta));
+    if (isInputWsol) {
+      instructions.push(
+        SystemProgram.transfer({
+          fromPubkey: payerPubkey,
+          toPubkey: inputTokenAccount,
+          lamports: inputAmount,
+        })
+      );
+      instructions.push(createSyncNativeInstruction(inputTokenAccount));
+    }
   }
 
   // Create output mint ATA if needed
   if (createOutputMintAta) {
     instructions.push(
-      createAssociatedTokenAccountInstruction(
+      createAssociatedTokenAccountIdempotentInstruction(
         payerPubkey,
         outputTokenAccount,
         payerPubkey,
         outputMint,
-        mintTokenProgram
+        outputTokenProgram
       )
     );
   }
 
   // Build instruction data
   const data = Buffer.alloc(24);
-  RAYDIUM_CPMM_SWAP_BASE_IN_DISCRIMINATOR.copy(data, 0);
+  (fixedOutputAmount !== undefined
+    ? RAYDIUM_CPMM_SWAP_BASE_OUT_DISCRIMINATOR
+    : RAYDIUM_CPMM_SWAP_BASE_IN_DISCRIMINATOR
+  ).copy(data, 0);
   data.writeBigUInt64LE(inputAmount, 8);
-  data.writeBigUInt64LE(minimumAmountOut, 16);
+  data.writeBigUInt64LE(fixedOutputAmount ?? minimumAmountOut, 16);
 
   // Build accounts
   const accounts: AccountMeta[] = [
@@ -343,8 +357,8 @@ export function buildRaydiumCpmmBuyInstructions(
     { pubkey: outputTokenAccount, isSigner: false, isWritable: true },
     { pubkey: inputVaultAccount, isSigner: false, isWritable: true },
     { pubkey: outputVaultAccount, isSigner: false, isWritable: true },
-    { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
-    { pubkey: mintTokenProgram, isSigner: false, isWritable: false },
+    { pubkey: inputTokenProgram, isSigner: false, isWritable: false },
+    { pubkey: outputTokenProgram, isSigner: false, isWritable: false },
     { pubkey: inputMint, isSigner: false, isWritable: false },
     { pubkey: outputMint, isSigner: false, isWritable: false },
     { pubkey: observationStateAccount, isSigner: false, isWritable: true },
@@ -359,10 +373,9 @@ export function buildRaydiumCpmmBuyInstructions(
   );
 
   // Close WSOL ATA if requested
-  if (closeInputMintAta && isWsol) {
-    const wsolAta = getAssociatedTokenAddressSync(NATIVE_MINT, payerPubkey, true);
+  if (closeInputMintAta && inputMint.equals(WSOL_TOKEN_ACCOUNT)) {
     instructions.push(
-      createCloseAccountInstruction(wsolAta, payerPubkey, payerPubkey, [], TOKEN_PROGRAM_ID)
+      createCloseAccountInstruction(inputTokenAccount, payerPubkey, payerPubkey, [], inputTokenProgram)
     );
   }
 
@@ -420,38 +433,42 @@ export function buildRaydiumCpmmSellInstructions(
 
   // Determine swap direction
   const isQuoteOut = quoteMint.equals(WSOL_TOKEN_ACCOUNT) || quoteMint.equals(USDC_TOKEN_ACCOUNT);
-  const mintTokenProgram = isQuoteOut ? baseTokenProgram : quoteTokenProgram;
+  const expectedInputMint = isQuoteOut ? baseMint : quoteMint;
+  const inputTokenProgram = isQuoteOut ? baseTokenProgram : quoteTokenProgram;
+  const outputMint = isQuoteOut ? quoteMint : baseMint;
+  const outputTokenProgram = isQuoteOut ? quoteTokenProgram : baseTokenProgram;
+  if (!inputMint.equals(expectedInputMint)) {
+    throw new Error(`inputMint must match Raydium CPMM pool side ${expectedInputMint.toBase58()}`);
+  }
 
   // Derive pool state
   const poolState = protocolParams.poolState && !protocolParams.poolState.equals(PublicKey.default)
     ? protocolParams.poolState
     : getRaydiumCpmmPoolPda(ammConfig, baseMint, quoteMint);
 
-  // Calculate output
-  const swapResult = computeRaydiumCpmmSwapAmount(
-    baseReserve,
-    quoteReserve,
-    isQuoteOut,
-    inputAmount,
-    slippageBasisPoints
-  );
-  const minimumAmountOut = fixedOutputAmount || swapResult.minAmountOut;
-
-  // Determine output mint
-  const outputMint = isWsol ? WSOL_TOKEN_ACCOUNT : USDC_TOKEN_ACCOUNT;
+  // Calculate output only for base-in swaps; fixed-output swaps pass max input directly.
+  const minimumAmountOut =
+    fixedOutputAmount ??
+    computeRaydiumCpmmSwapAmount(
+      baseReserve,
+      quoteReserve,
+      isQuoteOut,
+      inputAmount,
+      slippageBasisPoints
+    ).minAmountOut;
 
   // Derive user token accounts
   const inputTokenAccount = getAssociatedTokenAddressSync(
     inputMint,
     payerPubkey,
     true,
-    mintTokenProgram
+    inputTokenProgram
   );
   const outputTokenAccount = getAssociatedTokenAddressSync(
     outputMint,
     payerPubkey,
     true,
-    TOKEN_PROGRAM_ID
+    outputTokenProgram
   );
 
   // Derive vault accounts
@@ -466,10 +483,10 @@ export function buildRaydiumCpmmSellInstructions(
   })();
 
   const outputVaultAccount = ((): PublicKey => {
-    if (isWsol && baseMint.equals(outputMint) && baseVault && !baseVault.equals(PublicKey.default)) {
+    if (baseMint.equals(outputMint) && baseVault && !baseVault.equals(PublicKey.default)) {
       return baseVault;
     }
-    if (!isWsol && quoteMint.equals(outputMint) && quoteVault && !quoteVault.equals(PublicKey.default)) {
+    if (quoteMint.equals(outputMint) && quoteVault && !quoteVault.equals(PublicKey.default)) {
       return quoteVault;
     }
     return getRaydiumCpmmVaultPda(poolState, outputMint);
@@ -480,25 +497,27 @@ export function buildRaydiumCpmmSellInstructions(
     ? observationState
     : getRaydiumCpmmObservationStatePda(poolState);
 
-  // Create WSOL ATA for receiving if needed
-  if (createOutputMintAta && isWsol) {
-    const wsolAta = getAssociatedTokenAddressSync(NATIVE_MINT, payerPubkey, true);
+  // Create output ATA for receiving if needed
+  if (createOutputMintAta) {
     instructions.push(
-      createAssociatedTokenAccountInstruction(
+      createAssociatedTokenAccountIdempotentInstruction(
         payerPubkey,
-        wsolAta,
+        outputTokenAccount,
         payerPubkey,
-        NATIVE_MINT,
-        TOKEN_PROGRAM_ID
+        outputMint,
+        outputTokenProgram
       )
     );
   }
 
   // Build instruction data
   const data = Buffer.alloc(24);
-  RAYDIUM_CPMM_SWAP_BASE_IN_DISCRIMINATOR.copy(data, 0);
+  (fixedOutputAmount !== undefined
+    ? RAYDIUM_CPMM_SWAP_BASE_OUT_DISCRIMINATOR
+    : RAYDIUM_CPMM_SWAP_BASE_IN_DISCRIMINATOR
+  ).copy(data, 0);
   data.writeBigUInt64LE(inputAmount, 8);
-  data.writeBigUInt64LE(minimumAmountOut, 16);
+  data.writeBigUInt64LE(fixedOutputAmount ?? minimumAmountOut, 16);
 
   // Build accounts
   const accounts: AccountMeta[] = [
@@ -510,8 +529,8 @@ export function buildRaydiumCpmmSellInstructions(
     { pubkey: outputTokenAccount, isSigner: false, isWritable: true },
     { pubkey: inputVaultAccount, isSigner: false, isWritable: true },
     { pubkey: outputVaultAccount, isSigner: false, isWritable: true },
-    { pubkey: mintTokenProgram, isSigner: false, isWritable: false },
-    { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+    { pubkey: inputTokenProgram, isSigner: false, isWritable: false },
+    { pubkey: outputTokenProgram, isSigner: false, isWritable: false },
     { pubkey: inputMint, isSigner: false, isWritable: false },
     { pubkey: outputMint, isSigner: false, isWritable: false },
     { pubkey: observationStateAccount, isSigner: false, isWritable: true },
@@ -526,10 +545,9 @@ export function buildRaydiumCpmmSellInstructions(
   );
 
   // Close WSOL ATA if requested
-  if (closeOutputMintAta && isWsol) {
-    const wsolAta = getAssociatedTokenAddressSync(NATIVE_MINT, payerPubkey, true);
+  if (closeOutputMintAta && outputMint.equals(WSOL_TOKEN_ACCOUNT)) {
     instructions.push(
-      createCloseAccountInstruction(wsolAta, payerPubkey, payerPubkey, [], TOKEN_PROGRAM_ID)
+      createCloseAccountInstruction(outputTokenAccount, payerPubkey, payerPubkey, [], outputTokenProgram)
     );
   }
 
@@ -541,7 +559,7 @@ export function buildRaydiumCpmmSellInstructions(
         payerPubkey,
         payerPubkey,
         [],
-        mintTokenProgram
+        inputTokenProgram
       )
     );
   }

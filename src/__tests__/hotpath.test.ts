@@ -386,6 +386,39 @@ describe('HotPathExecutor', () => {
     expect(result.success).toBe(false);
     expect(result.error).toContain('Stale blockhash');
   });
+
+  it('should wait past first failed parallel submit', async () => {
+    const fastFailClient = {
+      getSwqosType: () => 'jito',
+      sendTransaction: vi.fn(async () => {
+        throw new Error('fast failure');
+      }),
+    };
+    const slowSuccessClient = {
+      getSwqosType: () => 'default',
+      sendTransaction: vi.fn(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        return 'sig-ok';
+      }),
+    };
+
+    const result = await (executor as any).executeParallel(
+      'buy',
+      Buffer.from('tx'),
+      [fastFailClient, slowSuccessClient],
+      {
+        parallelSubmit: true,
+        timeoutMs: 100,
+        skipBlockhashValidation: true,
+        maxRetries: 1,
+      }
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.signature).toBe('sig-ok');
+    expect(fastFailClient.sendTransaction).toHaveBeenCalledTimes(1);
+    expect(slowSuccessClient.sendTransaction).toHaveBeenCalledTimes(1);
+  });
 });
 
 // ===== createHotPathExecutor Tests =====

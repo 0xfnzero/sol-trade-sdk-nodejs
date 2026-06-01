@@ -1,4 +1,4 @@
-import { PublicKey } from '@solana/web3.js';
+import { PublicKey, SystemInstruction, SystemProgram } from '@solana/web3.js';
 import { describe, expect, it } from 'vitest';
 import { CONSTANTS } from '../index';
 import {
@@ -11,12 +11,62 @@ import {
   METEORA_DAMM_V2_SWAP_MODE_PARTIAL_FILL,
   buildMeteoraDammV2BuyInstructions,
 } from '../instruction/meteora_damm_v2_builder';
+import {
+  PUMPFUN_BUY_V2_DISCRIMINATOR,
+  buildPumpFunBuyInstructions,
+} from '../instruction/pumpfun_builder';
+import {
+  RAYDIUM_CPMM_SWAP_BASE_OUT_DISCRIMINATOR,
+  buildRaydiumCpmmBuyInstructions,
+} from '../instruction/raydium_cpmm_builder';
 
 function pk(seed: number): PublicKey {
   return new PublicKey(new Uint8Array(32).fill(seed));
 }
 
+function pumpFunProtocolParams(quoteMint: PublicKey = PublicKey.default) {
+  return {
+    bondingCurve: {
+      account: PublicKey.default,
+      virtualTokenReserves: 1_073_000_000_000_000n,
+      virtualSolReserves: 30_000_000_000n,
+      realTokenReserves: 793_100_000_000_000n,
+      creator: pk(7),
+      isMayhemMode: false,
+      isCashbackCoin: false,
+    },
+    creatorVault: pk(8),
+    tokenProgram: CONSTANTS.TOKEN_PROGRAM,
+    quoteMint,
+  };
+}
+
 describe('protocol instruction parity', () => {
+  it('uses Raydium CPMM swap_base_out for fixed-output buys', () => {
+    const ixs = buildRaydiumCpmmBuyInstructions({
+      payer: pk(99),
+      outputMint: pk(2),
+      inputAmount: 100_000n,
+      fixedOutputAmount: 42n,
+      createInputMintAta: false,
+      createOutputMintAta: false,
+      protocolParams: {
+        ammConfig: pk(1),
+        baseMint: CONSTANTS.WSOL_TOKEN_ACCOUNT,
+        quoteMint: pk(2),
+        baseTokenProgram: CONSTANTS.TOKEN_PROGRAM,
+        quoteTokenProgram: CONSTANTS.TOKEN_PROGRAM,
+        baseReserve: 1_000_000_000n,
+        quoteReserve: 2_000_000_000n,
+      },
+    });
+    const ix = ixs.at(-1)!;
+
+    expect([...ix.data.subarray(0, 8)]).toEqual([...RAYDIUM_CPMM_SWAP_BASE_OUT_DISCRIMINATOR]);
+    expect(ix.data.readBigUInt64LE(8)).toBe(100_000n);
+    expect(ix.data.readBigUInt64LE(16)).toBe(42n);
+  });
+
   it('builds Raydium AMM V4 with the IDL market account order', () => {
     const ixs = buildRaydiumAmmV4BuyInstructions({
       payer: pk(99),
@@ -135,5 +185,58 @@ describe('protocol instruction parity', () => {
     });
 
     expect(ixs.at(-1)!.keys[6]!.pubkey.toBase58()).toBe(CONSTANTS.WSOL_TOKEN_ACCOUNT.toBase58());
+  });
+
+  it('builds PumpFun V2 buy with the current 27-account layout', () => {
+    const creatorVault = pk(8);
+    const ixs = buildPumpFunBuyInstructions({
+      payer: pk(99),
+      inputMint: CONSTANTS.USDC_TOKEN_ACCOUNT,
+      outputMint: pk(2),
+      inputAmount: 100_000n,
+      createInputMintAta: false,
+      createOutputMintAta: false,
+      protocolParams: pumpFunProtocolParams(CONSTANTS.USDC_TOKEN_ACCOUNT),
+    });
+    const ix = ixs.at(-1)!;
+
+    expect(ix.keys).toHaveLength(27);
+    expect(ix.keys[16]!.pubkey.toBase58()).toBe(creatorVault.toBase58());
+    expect(ix.keys[18]!.isWritable).toBe(false);
+  });
+
+  it('uses buy_v2 for PumpFun V2 fixed-output buys', () => {
+    const ixs = buildPumpFunBuyInstructions({
+      payer: pk(99),
+      inputMint: CONSTANTS.SOL_TOKEN_ACCOUNT,
+      outputMint: pk(2),
+      inputAmount: 100_000n,
+      fixedOutputAmount: 42n,
+      createInputMintAta: false,
+      createOutputMintAta: false,
+      protocolParams: pumpFunProtocolParams(CONSTANTS.WSOL_TOKEN_ACCOUNT),
+    });
+    const ix = ixs.at(-1)!;
+
+    expect([...ix.data.subarray(0, 8)]).toEqual([...PUMPFUN_BUY_V2_DISCRIMINATOR]);
+    expect(ix.data.readBigUInt64LE(8)).toBe(42n);
+    expect(ix.data.readBigUInt64LE(16)).toBe(100_000n);
+  });
+
+  it('wraps the max quote budget for regular PumpFun V2 WSOL buys', () => {
+    const ixs = buildPumpFunBuyInstructions({
+      payer: pk(99),
+      inputMint: CONSTANTS.SOL_TOKEN_ACCOUNT,
+      outputMint: pk(2),
+      inputAmount: 100_000n,
+      slippageBasisPoints: 1000n,
+      useExactSolAmount: false,
+      createInputMintAta: true,
+      createOutputMintAta: false,
+      protocolParams: pumpFunProtocolParams(CONSTANTS.WSOL_TOKEN_ACCOUNT),
+    });
+
+    expect(ixs[1]!.programId.toBase58()).toBe(SystemProgram.programId.toBase58());
+    expect(BigInt(SystemInstruction.decodeTransfer(ixs[1]!).lamports)).toBe(110_000n);
   });
 });
