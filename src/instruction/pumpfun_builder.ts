@@ -280,7 +280,7 @@ export interface PumpFunParams {
   observedTradeCreator?: PublicKey;
   feeSharingCreatorVaultIfActive?: PublicKey;
   closeTokenAccountWhenSell?: boolean;
-  /** From parser/gRPC (`tradeEvent.feeRecipient`); default pubkey → random pool */
+  /** From an already-decoded event (`tradeEvent.feeRecipient`); default pubkey -> random pool */
   feeRecipient?: PublicKey;
   /** Layout selector: default/Solscan SOL sentinel keeps legacy SOL; WSOL/USDC selects V2. */
   quoteMint?: PublicKey;

@@ -77,6 +77,10 @@ This SDK is available in multiple languages:
 
 This release refreshes PumpFun V2 and USDC quote-pool handling, keeps the default RPC submit lane active alongside SWQoS lanes, and aligns Raydium CPMM fixed-output swaps with the on-chain `swap_base_out` instruction. Trade execution requires a caller-supplied `recentBlockhash` or durable nonce; hot-path execution does not query RPC for blockhash, account, or balance data.
 
+## Rust v4.0.21 Parity
+
+This SDK now tracks the Rust SDK `v4.0.21` public behavior for high-level trade intent APIs and SWQoS provider coverage. New code can use `buySimple` / `sellSimple` with `AccountPolicy`, `BuyAmount`, and `SellAmount`; these convert to the existing `buy` / `sell` params without removing the legacy API. SWQoS coverage includes the Rust `Solami` type and defaults (`beam.solami.dev:11000`, min tip `0.0001 SOL`); live Solami submit uses the main QUIC client path and requires the same base58 Solana keypair api token model as Rust. Explicit SWQoS routes still keep the default RPC lane appended. Legacy extended provider classes such as `Triton`, `QuickNode`, `Syndica`, `Figment`, and `Alchemy` are kept only for source compatibility and are not part of Rust `v4.0.21` trading provider parity.
+
 ## ✨ Features
 
 1. **PumpFun Trading**: Unified `buy`, `sell`, and `buy_exact_quote_in` flow with automatic legacy or V2 instruction selection for SOL and USDC quote pools
@@ -87,7 +91,7 @@ This release refreshes PumpFun V2 and USDC quote-pool handling, keeps the defaul
 6. **Meteora DAMM V2 Trading**: Support for Meteora DAMM V2 (Dynamic AMM) trading operations
 7. **Multiple MEV Protection**: Support for Jito, Nextblock, ZeroSlot, Temporal, Bloxroute, FlashBlock, BlockRazor, Node1, Astralane and other services
 8. **Concurrent Trading**: Submit through every configured SWQoS provider plus the default RPC lane; the first accepted result can return early while slower routes continue submitting
-9. **Unified Trading Interface**: Use unified trading protocol types for trading operations
+9. **Unified Trading Interface**: Use unified trading protocol types for trading operations, including Rust-parity `buySimple` / `sellSimple` intent params
 10. **Middleware System**: Support for custom instruction middleware to modify, add, or remove instructions before transaction execution
 11. **Shared Infrastructure**: Share expensive RPC and SWQoS clients across multiple wallets for reduced resource usage
 12. **Hot-Path RPC Boundary**: Trade execution uses caller-supplied blockhash or durable nonce and never queries RPC for blockhash, account, or balance data
@@ -134,6 +138,8 @@ pnpm add sol-trade-sdk@0.1.2
 ## 🛠️ Usage Examples
 
 ### 📋 Example Usage
+
+For the high-level intent API, see [Simple Trading](examples/simple_trading.ts). It shows `createSimpleBuyParams`, `BuyAmount.WithMaxInput`, `AccountPolicy.Auto`, and the conversion to legacy `TradeBuyParams`.
 
 #### 1. Create TradingClient Instance
 
@@ -195,27 +201,34 @@ gasFeeStrategy.setGlobalFeeStrategy(150000, 150000, 500000, 500000, 0.001, 0.001
 #### 3. Build Trading Parameters
 
 ```typescript
-import { TradeBuyParams, DexType, TradeTokenType, DexParamEnum } from 'sol-trade-sdk';
+import {
+  AccountPolicy,
+  BuyAmount,
+  DexType,
+  TradeTokenType,
+  createSimpleBuyParams,
+  simpleBuyParamsToTradeBuyParams,
+  withSimpleBuyAccountPolicy,
+  withSimpleBuySlippage,
+} from 'sol-trade-sdk';
 
-const buyParams: TradeBuyParams = {
-  dexType: DexType.PumpSwap,
-  inputTokenType: TradeTokenType.WSOL,
-  mint: mintPubkey,
-  inputTokenAmount: buySolAmount,
-  slippageBasisPoints: 500,
-  recentBlockhash: recentBlockhash,
-  // Use DexParamEnum for type-safe protocol parameters
-  extensionParams: { type: 'PumpSwap', params: pumpSwapParams },
-  addressLookupTableAccount: null,
-  waitTransactionConfirmed: true,
-  createInputTokenAta: true,
-  closeInputTokenAta: true,
-  createMintAta: true,
-  durableNonce: null,
-  fixedOutputTokenAmount: null,
-  gasFeeStrategy: gasFeeStrategy,
-  simulate: false,
-};
+const simple = withSimpleBuyAccountPolicy(
+  withSimpleBuySlippage(
+    createSimpleBuyParams(
+      DexType.PumpSwap,
+      TradeTokenType.WSOL,
+      mintPubkey,
+      BuyAmount.WithMaxInput(buySolAmount),
+      { type: 'PumpSwap', params: pumpSwapParams },
+      recentBlockhash,
+      gasFeeStrategy
+    ),
+    500
+  ),
+  AccountPolicy.Auto
+);
+
+const buyParams = simpleBuyParamsToTradeBuyParams(simple);
 ```
 
 #### 4. Execute Trading
@@ -340,8 +353,8 @@ const nonceInfo = await fetchNonceInfo(rpc, nonceAccount);
 PumpFun and PumpSwap support **cashback** for eligible tokens: part of the trading fee can be returned to the user. The SDK **must know** whether the token has cashback enabled so that buy/sell instructions include the correct accounts.
 
 - **When params come from RPC**: If you use `PumpFunParams.fromMintByRpc` or `PumpSwapParams.fromPoolAddressByRpc`, the SDK reads `isCashbackCoin` from chain—no extra step.
-- **When params come from event/parser**: If you build params from trade events (e.g. [sol-parser-sdk](https://github.com/0xfnzero/sol-parser-sdk)), you **must** pass the cashback flag into the SDK:
-  - **PumpFun**: Set `isCashbackCoin` when building params from parsed events.
+- **When params come from decoded events**: If you build params from already-decoded trade events (for example from a parser service), you **must** pass the cashback flag into the SDK:
+  - **PumpFun**: Set `isCashbackCoin` when building params from decoded events.
   - **PumpSwap**: Set `isCashbackCoin` field when constructing params manually.
 
 ## 🛡️ MEV Protection Services

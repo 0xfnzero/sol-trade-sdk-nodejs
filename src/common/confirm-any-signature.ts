@@ -55,6 +55,19 @@ export function extractHintsFromLogs(
 /**
  * Map `TransactionError` JSON (meta.err) to a numeric code; prefers Custom instruction code like Rust.
  */
+const SOLANA_INSTRUCTION_ERROR_CODES: Record<string, number> = {
+  GenericError: 1,
+  InvalidArgument: 2,
+  InvalidInstructionData: 3,
+  InvalidAccountData: 4,
+  AccountDataTooSmall: 5,
+  InsufficientFunds: 6,
+  IncorrectProgramId: 7,
+  MissingRequiredSignature: 8,
+  AccountAlreadyInitialized: 9,
+  UninitializedAccount: 10,
+};
+
 export function instructionErrorCodeFromMetaErr(err: unknown): {
   code: number;
   instructionIndex?: number;
@@ -73,6 +86,12 @@ export function instructionErrorCodeFromMetaErr(err: unknown): {
       ) {
         return {
           code: Number((detail as { Custom: number }).Custom),
+          instructionIndex,
+        };
+      }
+      if (typeof detail === 'string' && detail in SOLANA_INSTRUCTION_ERROR_CODES) {
+        return {
+          code: SOLANA_INSTRUCTION_ERROR_CODES[detail]!,
           instructionIndex,
         };
       }
@@ -106,8 +125,17 @@ export async function confirmAnyTransactionSignature(
   }
   if (unique.length === 1) {
     const sig = unique[0]!;
-    await connection.confirmTransaction(sig, commitment);
-    return sig;
+    const status = await connection.getSignatureStatuses([sig], {
+      searchTransactionHistory: true,
+    });
+    const st = status.value[0];
+    if (
+      st &&
+      st.err == null &&
+      (st.confirmationStatus === 'confirmed' || st.confirmationStatus === 'finalized')
+    ) {
+      return sig;
+    }
   }
 
   const start = Date.now();

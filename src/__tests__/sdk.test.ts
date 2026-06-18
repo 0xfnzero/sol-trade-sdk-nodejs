@@ -3,24 +3,70 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { PublicKey, TransactionInstruction } from '@solana/web3.js';
+import { Keypair, PublicKey, TransactionInstruction, VersionedTransaction } from '@solana/web3.js';
 import {
+  AccountPolicy,
+  BuyAmount,
+  DexType,
   GasFeeStrategy,
   GasFeeStrategyType,
+  SellAmount,
   createGasFeeStrategy,
   SwqosType,
   SwqosRegion,
   TradeType,
+  TradeTokenType,
   TradeConfigBuilder,
+  TradingClient,
   MiddlewareManager,
   InstructionProcessor,
   MAX_INSTRUCTIONS_WARN,
   ExecutionPath,
   createTradeConfig,
+  createSimpleBuyParams,
+  createSimpleBuyParamsWithDurableNonce,
+  createSimpleSellParams,
+  createSimpleSellParamsWithDurableNonce,
+  recommendedSenderThreadCoreIndices,
+  simpleBuyParamsToTradeBuyParams,
+  simpleSellParamsToTradeSellParams,
+  withSimpleBuyAccountPolicy,
+  withSimpleBuyDurableNonce,
+  withSimpleBuyGrpcRecvUs,
+  withSimpleBuySimulate,
+  withSimpleBuySlippage,
+  withSimpleBuyWaitForAllSubmits,
+  withSimpleBuyWaitTxConfirmed,
+  withSimpleSellAccountPolicy,
+  withSimpleSellGrpcRecvUs,
+  withSimpleSellSimulate,
+  withSimpleSellSlippage,
+  withSimpleSellTip,
+  withSimpleSellWaitForAllSubmits,
+  withSimpleSellWaitTxConfirmed,
   RUST_PARITY_SIMULATE_CONFIG,
   commitmentToGetTxFinality,
   type InstructionMiddleware,
 } from '../index';
+import {
+  ASTRALANE_ENDPOINTS,
+  ASTRALANE_QUIC_HOSTS,
+  BLOXROUTE_ENDPOINTS,
+  BLOCK_RAZOR_ENDPOINTS,
+  ClientFactory as SenderClientFactory,
+  MIN_TIP_DEFAULT,
+  MIN_TIP_SOLAMI,
+  NODE1_ENDPOINTS,
+  SOYAS_ENDPOINTS,
+  SolamiClient as SenderSolamiClient,
+  SPEEDLANDING_ENDPOINTS,
+  STELLIUM_ENDPOINTS,
+} from '../swqos/clients';
+import {
+  SolamiClient as ProviderSolamiClient,
+  SwqosClientFactory,
+  SwqosType as ProviderSwqosType,
+} from '../swqos/providers';
 import {
   confirmAnyTransactionSignature,
   extractHintsFromLogs,
@@ -222,9 +268,319 @@ describe('createTradeConfig', () => {
     ]);
   });
 
-  it('does not add Default RPC when no SWQOS providers are configured', () => {
+  it('adds Default RPC when no SWQOS providers are configured', () => {
     const cfg = TradeConfigBuilder.create('https://x').build();
-    expect(cfg.swqosConfigs).toHaveLength(0);
+    expect(cfg.swqosConfigs.map((c) => c.type)).toEqual([SwqosType.Default]);
+  });
+
+  it('sets Rust-parity defaults in shorthand helper', () => {
+    const cfg = createTradeConfig('https://x');
+    expect(cfg.logEnabled).toBe(true);
+    expect(cfg.checkMinTip).toBe(false);
+    expect(cfg.mevProtection).toBe(false);
+    expect(cfg.useSeedOptimize).toBe(true);
+    expect(cfg.createWsolAtaOnStartup).toBe(true);
+    expect(cfg.swqosCoresFromEnd).toBe(false);
+  });
+
+  it('recommendedSenderThreadCoreIndices uses Rust two-thirds cap', () => {
+    expect(recommendedSenderThreadCoreIndices(10, 6)).toEqual([2, 3, 4, 5]);
+  });
+});
+
+describe('Simple trade params', () => {
+  const mint = PublicKey.default;
+  const durableNonce = {
+    nonceAccount: PublicKey.default,
+    authority: PublicKey.default,
+    nonceHash: 'nonce-hash',
+    recentBlockhash: 'recent-from-nonce',
+  };
+
+  it('constructs simple params with Rust-parity defaults and amount helpers', () => {
+    const buy = createSimpleBuyParams(
+      DexType.PumpFun,
+      TradeTokenType.WSOL,
+      mint,
+      BuyAmount.WithMaxInput(5_000),
+      { type: 'PumpFun', params: {} as any },
+      'recent'
+    );
+
+    expect(buy.accountPolicy).toBe(AccountPolicy.Auto);
+    expect(buy.waitTxConfirmed).toBe(false);
+    expect(buy.waitForAllSubmits).toBe(false);
+    expect(buy.simulate).toBe(false);
+    expect(buy.recentBlockhash).toBe('recent');
+
+    const sell = createSimpleSellParams(
+      DexType.PumpFun,
+      TradeTokenType.USDC,
+      mint,
+      SellAmount.ExactInput(7_000),
+      { type: 'PumpFun', params: {} as any },
+      'recent'
+    );
+    expect(sell.accountPolicy).toBe(AccountPolicy.Auto);
+    expect(sell.withTip).toBe(true);
+    expect(sell.waitTxConfirmed).toBe(false);
+    expect(sell.waitForAllSubmits).toBe(false);
+    expect(sell.simulate).toBe(false);
+  });
+
+  it('constructs durable nonce simple params without a recent blockhash', () => {
+    const buy = createSimpleBuyParamsWithDurableNonce(
+      DexType.PumpFun,
+      TradeTokenType.SOL,
+      mint,
+      BuyAmount.ExactInput(1_000),
+      { type: 'PumpFun', params: {} as any },
+      durableNonce
+    );
+    expect(buy.recentBlockhash).toBeUndefined();
+    expect(buy.durableNonce).toBe(durableNonce);
+
+    const sell = createSimpleSellParamsWithDurableNonce(
+      DexType.PumpFun,
+      TradeTokenType.SOL,
+      mint,
+      SellAmount.ExactOutput(500, 1_000),
+      { type: 'PumpFun', params: {} as any },
+      durableNonce
+    );
+    expect(sell.recentBlockhash).toBeUndefined();
+    expect(sell.durableNonce).toBe(durableNonce);
+  });
+
+  it('applies simple params with-helpers without mutating the original object', () => {
+    const base = createSimpleBuyParams(
+      DexType.PumpFun,
+      TradeTokenType.WSOL,
+      mint,
+      BuyAmount.ExactInput(1_000),
+      { type: 'PumpFun', params: {} as any },
+      'recent'
+    );
+    const buy = withSimpleBuyGrpcRecvUs(
+      withSimpleBuySimulate(
+        withSimpleBuyWaitForAllSubmits(
+          withSimpleBuyWaitTxConfirmed(
+            withSimpleBuyDurableNonce(
+              withSimpleBuyAccountPolicy(withSimpleBuySlippage(base, 123), AccountPolicy.CreateMissing),
+              durableNonce
+            ),
+            true
+          ),
+          true
+        ),
+        true
+      ),
+      456
+    );
+
+    expect(base.recentBlockhash).toBe('recent');
+    expect(buy.recentBlockhash).toBeUndefined();
+    expect(buy.slippageBasisPoints).toBe(123);
+    expect(buy.accountPolicy).toBe(AccountPolicy.CreateMissing);
+    expect(buy.waitTxConfirmed).toBe(true);
+    expect(buy.waitForAllSubmits).toBe(true);
+    expect(buy.simulate).toBe(true);
+    expect(buy.grpcRecvUs).toBe(456);
+
+    const sell = withSimpleSellGrpcRecvUs(
+      withSimpleSellTip(
+        withSimpleSellSimulate(
+          withSimpleSellWaitForAllSubmits(
+            withSimpleSellWaitTxConfirmed(
+              withSimpleSellAccountPolicy(
+                withSimpleSellSlippage(
+                  createSimpleSellParams(
+                    DexType.PumpFun,
+                    TradeTokenType.SOL,
+                    mint,
+                    SellAmount.ExactInput(1_000),
+                    { type: 'PumpFun', params: {} as any },
+                    'recent'
+                  ),
+                  321
+                ),
+                AccountPolicy.AssumePrepared
+              ),
+              true
+            ),
+            true
+          ),
+          true
+        ),
+        false
+      ),
+      654
+    );
+    expect(sell.slippageBasisPoints).toBe(321);
+    expect(sell.accountPolicy).toBe(AccountPolicy.AssumePrepared);
+    expect(sell.waitTxConfirmed).toBe(true);
+    expect(sell.waitForAllSubmits).toBe(true);
+    expect(sell.simulate).toBe(true);
+    expect(sell.withTip).toBe(false);
+    expect(sell.grpcRecvUs).toBe(654);
+  });
+
+  it('maps WithMaxInput buy and hot path account policy', () => {
+    const low = simpleBuyParamsToTradeBuyParams({
+      dexType: DexType.PumpFun,
+      payWith: TradeTokenType.USDC,
+      mint,
+      amount: { type: 'WithMaxInput', quoteAmount: 10_000 },
+      extensionParams: { type: 'PumpFun', params: {} as any },
+      recentBlockhash: 'recent',
+      slippageBasisPoints: 250,
+      accountPolicy: AccountPolicy.HotPathMinimal,
+      waitForAllSubmits: true,
+      durableNonce,
+      simulate: true,
+    });
+
+    expect(low.inputTokenType).toBe(TradeTokenType.USDC);
+    expect(low.inputTokenAmount).toBe(10_000);
+    expect(low.useExactSolAmount).toBe(false);
+    expect(low.createInputTokenAta).toBe(false);
+    expect(low.createMintAta).toBe(false);
+    expect(low.closeInputTokenAta).toBe(false);
+    expect(low.recentBlockhash).toBeUndefined();
+    expect(low.durableNonce).toBe(durableNonce);
+    expect(low.waitForAllSubmits).toBe(true);
+    expect(low.simulate).toBe(true);
+    expect(low.slippageBasisPoints).toBe(250);
+  });
+
+  it('maps ExactOutput buy and Auto account policy', () => {
+    const low = simpleBuyParamsToTradeBuyParams({
+      dexType: DexType.PumpFun,
+      payWith: TradeTokenType.SOL,
+      mint,
+      amount: { type: 'ExactOutput', outputAmount: 42, maxInputAmount: 10_000 },
+      extensionParams: { type: 'PumpFun', params: {} as any },
+      accountPolicy: AccountPolicy.Auto,
+    });
+
+    expect(low.inputTokenAmount).toBe(10_000);
+    expect(low.fixedOutputTokenAmount).toBe(42);
+    expect(low.useExactSolAmount).toBe(true);
+    expect(low.createInputTokenAta).toBe(false);
+    expect(low.createMintAta).toBe(true);
+    expect(low.closeInputTokenAta).toBe(false);
+  });
+
+  it('maps sell defaults, exact output, and SOL receive policy', () => {
+    const low = simpleSellParamsToTradeSellParams({
+      dexType: DexType.PumpFun,
+      receiveAs: TradeTokenType.USDC,
+      mint,
+      amount: { type: 'ExactOutput', outputAmount: 7_000, maxInputAmount: 50_000 },
+      extensionParams: { type: 'PumpFun', params: {} as any },
+    });
+
+    expect(low.inputTokenAmount).toBe(50_000);
+    expect(low.fixedOutputTokenAmount).toBe(7_000);
+    expect(low.withTip).toBe(true);
+    expect(low.createOutputTokenAta).toBe(true);
+    expect(low.closeOutputTokenAta).toBe(false);
+    expect(low.closeMintTokenAta).toBe(false);
+
+    const solLow = simpleSellParamsToTradeSellParams({
+      dexType: DexType.PumpFun,
+      receiveAs: TradeTokenType.SOL,
+      mint,
+      amount: { type: 'ExactInput', amount: 50_000 },
+      extensionParams: { type: 'PumpFun', params: {} as any },
+      withTip: false,
+    });
+    expect(solLow.withTip).toBe(false);
+    expect(solLow.createOutputTokenAta).toBe(false);
+  });
+});
+
+describe('Solami SWQOS parity', () => {
+  it('sender factory creates Solami client with Rust v4.0.21 defaults', () => {
+    const client = SenderClientFactory.createClient(
+      { type: SwqosType.Solami, region: SwqosRegion.Tokyo },
+      'https://rpc.example'
+    );
+
+    expect(client).toBeInstanceOf(SenderSolamiClient);
+    expect(client.getSwqosType()).toBe(SwqosType.Solami);
+    expect(client.minTipSol()).toBe(MIN_TIP_SOLAMI);
+  });
+
+  it('sender Solami requires Rust-style api token for client certificate auth', async () => {
+    const client = SenderClientFactory.createClient(
+      { type: SwqosType.Solami, region: SwqosRegion.Tokyo },
+      'https://rpc.example'
+    );
+
+    await expect(
+      client.sendTransaction(TradeType.Buy, Buffer.from([1, ...new Array(64).fill(0)]), false)
+    ).rejects.toThrow(/Solami api token is required/);
+  });
+
+  it('provider factory exposes Solami provider', () => {
+    expect(SwqosClientFactory.getSupportedTypes()).toContain(ProviderSwqosType.Solami);
+    expect(SwqosClientFactory.getSupportedTypes()).not.toContain(ProviderSwqosType.Triton);
+    expect(SwqosClientFactory.getSupportedTypes()).not.toContain(ProviderSwqosType.QuickNode);
+    expect(SwqosClientFactory.getSupportedTypes()).not.toContain(ProviderSwqosType.Syndica);
+    expect(SwqosClientFactory.getSupportedTypes()).not.toContain(ProviderSwqosType.Figment);
+    expect(SwqosClientFactory.getSupportedTypes()).not.toContain(ProviderSwqosType.Alchemy);
+    const provider = SwqosClientFactory.createClient({
+      swqosType: ProviderSwqosType.Solami,
+    });
+    expect(provider).toBeInstanceOf(ProviderSolamiClient);
+    expect(provider.getProviderType()).toBe(ProviderSwqosType.Solami);
+  });
+
+  it('provider Solami path does not claim unsupported HTTP live submit', async () => {
+    const provider = SwqosClientFactory.createClient({
+      swqosType: ProviderSwqosType.Solami,
+    });
+    const result = await provider.submitTransaction(Buffer.from([1, ...new Array(64).fill(0)]));
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('QUIC path');
+  });
+
+  it('sender factory rejects legacy non-Rust SWQOS providers', () => {
+    expect(() =>
+      SenderClientFactory.createClient(
+        { type: SwqosType.Triton, region: SwqosRegion.Default },
+        'https://rpc.example'
+      )
+    ).toThrow(/Unsupported SWQOS type/);
+  });
+
+  it('rejects NextBlock because Rust v4.0.21 blacklists it by default', () => {
+    const cfg = createTradeConfig('https://x', [
+      { type: SwqosType.NextBlock, region: SwqosRegion.Frankfurt, apiKey: 'token' },
+    ]);
+    expect(cfg.swqosConfigs.map((c) => c.type)).toEqual([SwqosType.Default]);
+    expect(() =>
+      SenderClientFactory.createClient(
+        { type: SwqosType.NextBlock, region: SwqosRegion.Frankfurt, apiKey: 'token' },
+        'https://rpc.example'
+      )
+    ).toThrow(/blacklisted/);
+  });
+});
+
+describe('SWQOS endpoint parity', () => {
+  it('matches Rust v4.0.21 key region fallbacks', () => {
+    expect(MIN_TIP_DEFAULT).toBe(0.00001);
+    expect(BLOXROUTE_ENDPOINTS[SwqosRegion.Singapore]).toBe('https://tokyo.solana.dex.blxrbdn.com');
+    expect(NODE1_ENDPOINTS[SwqosRegion.Singapore]).toBe('http://tk.node1.me');
+    expect(BLOCK_RAZOR_ENDPOINTS[SwqosRegion.Singapore]).toContain('tokyo.solana.blockrazor');
+    expect(ASTRALANE_ENDPOINTS[SwqosRegion.SLC]).toBe('http://la.gateway.astralane.io/irisb');
+    expect(ASTRALANE_ENDPOINTS[SwqosRegion.Singapore]).toBe('http://sg.gateway.astralane.io/irisb');
+    expect(ASTRALANE_QUIC_HOSTS[SwqosRegion.Singapore]).toBe('sg.gateway.astralane.io');
+    expect(STELLIUM_ENDPOINTS[SwqosRegion.Singapore]).toBe('http://tyo1.flashrpc.com');
+    expect(SOYAS_ENDPOINTS[SwqosRegion.Singapore]).toBe('tyo.landing.soyas.xyz:9000');
+    expect(SPEEDLANDING_ENDPOINTS[SwqosRegion.Singapore]).toBe('sgp.speedlanding.trade:17778');
   });
 });
 
@@ -283,6 +639,28 @@ describe('instructionErrorCodeFromMetaErr', () => {
       })
     ).toEqual({ code: 6001, instructionIndex: 2 });
   });
+
+  it('maps Solana built-in InstructionError variants like Rust', () => {
+    expect(
+      instructionErrorCodeFromMetaErr({
+        InstructionError: [1, 'InvalidInstructionData'],
+      })
+    ).toEqual({ code: 3, instructionIndex: 1 });
+    expect(
+      instructionErrorCodeFromMetaErr({
+        InstructionError: [4, 'MissingRequiredSignature'],
+      })
+    ).toEqual({ code: 8, instructionIndex: 4 });
+  });
+
+  it('uses Rust unknown and non-instruction fallbacks', () => {
+    expect(
+      instructionErrorCodeFromMetaErr({
+        InstructionError: [3, 'ComputationalBudgetExceeded'],
+      })
+    ).toEqual({ code: 999, instructionIndex: 3 });
+    expect(instructionErrorCodeFromMetaErr('BlockhashNotFound')).toEqual({ code: 108 });
+  });
 });
 
 describe('confirmAnyTransactionSignature', () => {
@@ -291,6 +669,41 @@ describe('confirmAnyTransactionSignature', () => {
     await expect(confirmAnyTransactionSignature(c, [])).rejects.toMatchObject({
       code: 106,
     });
+  });
+
+  it('single signature path also parses meta.err and logs', async () => {
+    const connection = {
+      getSignatureStatuses: vi.fn().mockResolvedValue({
+        context: { slot: 1 },
+        value: [
+          {
+            err: { InstructionError: [0, { Custom: 6002 }] },
+            confirmationStatus: 'processed' as const,
+            slot: 1,
+            confirmations: 0,
+          },
+        ],
+      }),
+      getTransaction: vi.fn().mockResolvedValue({
+        slot: 1,
+        transaction: { signatures: [], message: {} },
+        meta: {
+          err: { InstructionError: [0, { Custom: 6002 }] },
+          fee: 5000,
+          preBalances: [0],
+          postBalances: [0],
+          logMessages: ['Program log: Error: failed.'],
+        },
+      }),
+    } as unknown as Connection;
+
+    await expect(
+      confirmAnyTransactionSignature(connection, ['sigA'], {
+        pollsBeforeGetTransaction: 1,
+        pollIntervalMs: 0,
+      })
+    ).rejects.toMatchObject({ code: 6002 });
+    expect(connection.getTransaction).toHaveBeenCalled();
   });
 
   it('after poll threshold, uses getTransaction meta.err like Rust (Custom code)', async () => {
@@ -326,6 +739,87 @@ describe('confirmAnyTransactionSignature', () => {
       })
     ).rejects.toMatchObject({ code: 6001 });
     expect(connection.getTransaction).toHaveBeenCalled();
+  });
+});
+
+describe('TradingClient execution parity', () => {
+  it('prefers durable nonce hash over recent blockhash on the legacy execution path', async () => {
+    const payer = Keypair.generate();
+    const client = new (TradingClient as any)(
+      payer,
+      TradeConfigBuilder.create('https://rpc.example').build()
+    );
+    client._config.swqosConfigs = [];
+    const nonceHash = 'swqrv48gsrwpBFbftEwnP2vB4jckpvfGJfXkwaniLCC';
+    const recentBlockhash = 'p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV';
+    let sent: Buffer | undefined;
+    client.connection = {
+      sendRawTransaction: vi.fn(async (raw: Buffer) => {
+        sent = raw;
+        return 'sig';
+      }),
+    };
+
+    const result = await client.executeTransaction(
+      [new TransactionInstruction({ programId: PublicKey.default, keys: [], data: Buffer.from([1]) })],
+      recentBlockhash,
+      undefined,
+      false,
+      false,
+      {
+        tradeType: TradeType.Buy,
+        dexType: DexType.PumpFun,
+        durableNonce: {
+          nonceAccount: PublicKey.default,
+          authority: payer.publicKey,
+          nonceHash,
+          recentBlockhash,
+        },
+      }
+    );
+
+    expect(result.success).toBe(true);
+    expect(sent).toBeDefined();
+    const tx = VersionedTransaction.deserialize(sent!);
+    expect(tx.message.recentBlockhash).toBe(nonceHash);
+  });
+
+  it('rejects oversized signed transactions before submit like Rust', async () => {
+    const payer = Keypair.generate();
+    const client = new (TradingClient as any)(
+      payer,
+      TradeConfigBuilder.create('https://rpc.example').build()
+    );
+    client._config.swqosConfigs = [];
+    client.connection = {
+      sendRawTransaction: vi.fn(async () => 'sig'),
+    };
+
+    const result = await client.executeTransaction(
+      [
+        new TransactionInstruction({
+          programId: PublicKey.default,
+          keys: Array.from({ length: 40 }, () => ({
+            pubkey: Keypair.generate().publicKey,
+            isSigner: false,
+            isWritable: false,
+          })),
+          data: Buffer.alloc(700, 1),
+        }),
+      ],
+      'p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV',
+      undefined,
+      false,
+      false,
+      {
+        tradeType: TradeType.Buy,
+        dexType: DexType.PumpFun,
+      }
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.message).toContain('transaction too large');
+    expect(client.connection.sendRawTransaction).not.toHaveBeenCalled();
   });
 });
 

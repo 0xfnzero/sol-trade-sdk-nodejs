@@ -3,8 +3,16 @@
  * Implements various SWQOS (Solana Write Queue Operating System) providers.
  */
 
-import { AstralaneTransport, SwqosTransport, SwqosType, SwqosRegion, TradeType } from '../index';
+import {
+  AstralaneTransport,
+  SwqosTransport,
+  SwqosType,
+  SwqosRegion,
+  TradeType,
+  isSwqosTypeBlacklisted,
+} from '../index';
 import { TradeError } from '../sdk-errors';
+import bs58 from 'bs58';
 
 // ===== Utility =====
 
@@ -33,7 +41,8 @@ export const MIN_TIP_LIGHTSPEED = 0.0001;
 export const MIN_TIP_NEXT_BLOCK = 0.001;
 export const MIN_TIP_SOYAS = 0.001;
 export const MIN_TIP_SPEEDLANDING = 0.001;
-export const MIN_TIP_DEFAULT = 0.0;
+export const MIN_TIP_SOLAMI = 0.0001;
+export const MIN_TIP_DEFAULT = 0.00001;
 
 // ===== Tip Accounts =====
 
@@ -198,6 +207,19 @@ const SPEEDLANDING_TIP_ACCOUNTS = [
   'speede8xCcUq2Tiv1efXeTuE3k9TDNq8TnGKaKSc6J4',
 ];
 
+const SOLAMI_TIP_ACCOUNTS = [
+  '15qWd4huAkoxvhDsHMfpUn27TW1YBYMMJJ2jkAkbeam',
+  '9XuGciSwr5wb7dLTQm91JhuBTvj3GG8WjuRDc3obeam',
+  'kiQioJNyFG7pU36ELLsRKXkeT48kFbk3b6rSgrWbeam',
+  'kjmVhW1UzJrW2sU5bY5NtZ79jpvjSStsj37Pzmabeam',
+  'kREnjPWFpt4AHeY5pijPmyXaCrMnbatUQJo7d3Xbeam',
+  'praRZG6N6MdbsT4EFpKgZJWReZGXQhAMFcH68oCbeam',
+  'SqoKQKU5uwBxovq3R7yEBxFwptc4z7vwoghU3M9beam',
+  'sV72TY66T1RfmDSeHPPbwX6wwJ3bBv5hd4ehJ8tbeam',
+  'swf8MyEeLo7gtRUo27UuJj6naCASUrypU7dbteSbeam',
+  'uiuaQsxA47JybQAVN4FTfYuoEDkMiXV1r591Aewbeam',
+];
+
 // ===== Region Endpoint Maps =====
 
 export const JITO_ENDPOINTS: Record<SwqosRegion, string> = {
@@ -222,7 +244,7 @@ export const BLOXROUTE_ENDPOINTS: Record<SwqosRegion, string> = {
   [SwqosRegion.Tokyo]: 'https://tokyo.solana.dex.blxrbdn.com',
   [SwqosRegion.London]: 'https://uk.solana.dex.blxrbdn.com',
   [SwqosRegion.LosAngeles]: 'https://la.solana.dex.blxrbdn.com',
-  [SwqosRegion.Singapore]: 'https://global.solana.dex.blxrbdn.com',
+  [SwqosRegion.Singapore]: 'https://tokyo.solana.dex.blxrbdn.com',
   [SwqosRegion.Default]: 'https://global.solana.dex.blxrbdn.com',
 };
 
@@ -287,7 +309,7 @@ export const NODE1_ENDPOINTS: Record<SwqosRegion, string> = {
   [SwqosRegion.Tokyo]: 'http://tk.node1.me',
   [SwqosRegion.London]: 'http://lon.node1.me',
   [SwqosRegion.LosAngeles]: 'http://ny.node1.me',
-  [SwqosRegion.Singapore]: 'http://fra.node1.me',
+  [SwqosRegion.Singapore]: 'http://tk.node1.me',
   [SwqosRegion.Default]: 'http://fra.node1.me',
 };
 
@@ -300,7 +322,7 @@ export const BLOCK_RAZOR_ENDPOINTS: Record<SwqosRegion, string> = {
   [SwqosRegion.Tokyo]: 'http://tokyo.solana.blockrazor.xyz:443/v2/sendTransaction',
   [SwqosRegion.London]: 'http://london.solana.blockrazor.xyz:443/v2/sendTransaction',
   [SwqosRegion.LosAngeles]: 'http://newyork.solana.blockrazor.xyz:443/v2/sendTransaction',
-  [SwqosRegion.Singapore]: 'http://frankfurt.solana.blockrazor.xyz:443/v2/sendTransaction',
+  [SwqosRegion.Singapore]: 'http://tokyo.solana.blockrazor.xyz:443/v2/sendTransaction',
   [SwqosRegion.Default]: 'http://frankfurt.solana.blockrazor.xyz:443/v2/sendTransaction',
 };
 
@@ -309,12 +331,12 @@ export const ASTRALANE_ENDPOINTS: Record<SwqosRegion, string> = {
   [SwqosRegion.Frankfurt]: 'http://fr.gateway.astralane.io/irisb',
   [SwqosRegion.Amsterdam]: 'http://ams.gateway.astralane.io/irisb',
   [SwqosRegion.Dublin]: 'http://ams.gateway.astralane.io/irisb',
-  [SwqosRegion.SLC]: 'http://ny.gateway.astralane.io/irisb',
+  [SwqosRegion.SLC]: 'http://la.gateway.astralane.io/irisb',
   [SwqosRegion.Tokyo]: 'http://jp.gateway.astralane.io/irisb',
   [SwqosRegion.London]: 'http://ams.gateway.astralane.io/irisb',
-  [SwqosRegion.LosAngeles]: 'http://lax.gateway.astralane.io/irisb',
-  [SwqosRegion.Singapore]: 'http://lim.gateway.astralane.io/irisb',
-  [SwqosRegion.Default]: 'http://lim.gateway.astralane.io/irisb',
+  [SwqosRegion.LosAngeles]: 'http://la.gateway.astralane.io/irisb',
+  [SwqosRegion.Singapore]: 'http://sg.gateway.astralane.io/irisb',
+  [SwqosRegion.Default]: 'https://edge.astralane.io/irisb',
 };
 
 export const ASTRALANE_QUIC_HOSTS: Record<SwqosRegion, string> = {
@@ -322,11 +344,11 @@ export const ASTRALANE_QUIC_HOSTS: Record<SwqosRegion, string> = {
   [SwqosRegion.Frankfurt]: 'fr.gateway.astralane.io',
   [SwqosRegion.Amsterdam]: 'ams.gateway.astralane.io',
   [SwqosRegion.Dublin]: 'ams.gateway.astralane.io',
-  [SwqosRegion.SLC]: 'ny.gateway.astralane.io',
+  [SwqosRegion.SLC]: 'la.gateway.astralane.io',
   [SwqosRegion.Tokyo]: 'jp.gateway.astralane.io',
   [SwqosRegion.London]: 'ams.gateway.astralane.io',
-  [SwqosRegion.LosAngeles]: 'lax.gateway.astralane.io',
-  [SwqosRegion.Singapore]: 'lim.gateway.astralane.io',
+  [SwqosRegion.LosAngeles]: 'la.gateway.astralane.io',
+  [SwqosRegion.Singapore]: 'sg.gateway.astralane.io',
   [SwqosRegion.Default]: 'lim.gateway.astralane.io',
 };
 
@@ -339,7 +361,7 @@ export const STELLIUM_ENDPOINTS: Record<SwqosRegion, string> = {
   [SwqosRegion.Tokyo]: 'http://tyo1.flashrpc.com',
   [SwqosRegion.London]: 'http://lhr1.flashrpc.com',
   [SwqosRegion.LosAngeles]: 'http://ewr1.flashrpc.com',
-  [SwqosRegion.Singapore]: 'http://fra1.flashrpc.com',
+  [SwqosRegion.Singapore]: 'http://tyo1.flashrpc.com',
   [SwqosRegion.Default]: 'http://fra1.flashrpc.com',
 };
 
@@ -365,7 +387,7 @@ export const SOYAS_ENDPOINTS: Record<SwqosRegion, string> = {
   [SwqosRegion.Tokyo]: 'tyo.landing.soyas.xyz:9000',
   [SwqosRegion.London]: 'lon.landing.soyas.xyz:9000',
   [SwqosRegion.LosAngeles]: 'nyc.landing.soyas.xyz:9000',
-  [SwqosRegion.Singapore]: 'fra.landing.soyas.xyz:9000',
+  [SwqosRegion.Singapore]: 'tyo.landing.soyas.xyz:9000',
   [SwqosRegion.Default]: 'fra.landing.soyas.xyz:9000',
 };
 
@@ -376,10 +398,23 @@ export const SPEEDLANDING_ENDPOINTS: Record<SwqosRegion, string> = {
   [SwqosRegion.Dublin]: 'ams.speedlanding.trade:17778',
   [SwqosRegion.SLC]: 'nyc.speedlanding.trade:17778',
   [SwqosRegion.Tokyo]: 'tyo.speedlanding.trade:17778',
-  [SwqosRegion.London]: 'fra.speedlanding.trade:17778',
+  [SwqosRegion.London]: 'ams.speedlanding.trade:17778',
   [SwqosRegion.LosAngeles]: 'nyc.speedlanding.trade:17778',
-  [SwqosRegion.Singapore]: 'fra.speedlanding.trade:17778',
+  [SwqosRegion.Singapore]: 'sgp.speedlanding.trade:17778',
   [SwqosRegion.Default]: 'fra.speedlanding.trade:17778',
+};
+
+export const SOLAMI_ENDPOINTS: Record<SwqosRegion, string> = {
+  [SwqosRegion.NewYork]: 'beam.solami.dev:11000',
+  [SwqosRegion.Frankfurt]: 'beam.solami.dev:11000',
+  [SwqosRegion.Amsterdam]: 'beam.solami.dev:11000',
+  [SwqosRegion.Dublin]: 'beam.solami.dev:11000',
+  [SwqosRegion.SLC]: 'beam.solami.dev:11000',
+  [SwqosRegion.Tokyo]: 'beam.solami.dev:11000',
+  [SwqosRegion.Singapore]: 'beam.solami.dev:11000',
+  [SwqosRegion.London]: 'beam.solami.dev:11000',
+  [SwqosRegion.LosAngeles]: 'beam.solami.dev:11000',
+  [SwqosRegion.Default]: 'beam.solami.dev:11000',
 };
 
 // ===== SWQOS Client Interface =====
@@ -922,7 +957,7 @@ export class Node1QuicClient implements SwqosClient {
     waitConfirmation: boolean
   ): Promise<string> {
     await sendNode1ViaQUIC(this.host, this.port, this.authToken, new Uint8Array(transaction));
-    return '';
+    return signatureFromSerializedTransaction(transaction);
   }
 
   async sendTransactions(
@@ -1084,7 +1119,7 @@ export class AstralaneQuicClient implements SwqosClient {
       commonName: this.authToken,
       algorithm: 'ecdsa',
     });
-    return '';
+    return signatureFromSerializedTransaction(transaction);
   }
 
   async sendTransactions(
@@ -1329,17 +1364,16 @@ export class DefaultClient extends BaseClient {
   }
 }
 
-// ===== QUIC helper (Soyas / Speedlanding) =====
+// ===== QUIC helper (Astralane / Soyas / Speedlanding / Solami) =====
 
 /**
  * Send raw transaction bytes via QUIC to a Solana TPU endpoint.
  *
  * Uses @matrixai/quic (ESM-only) via dynamic import so this file stays CJS-
- * compatible. A self-signed Ed25519 certificate is generated via `selfsigned`
- * with ALPN "solana-tpu", matching the pattern of go-solana-tpu and the Rust
- * solana-tls-utils crate.
+ * compatible. Most Solana TPU providers use self-signed Ed25519 certs with
+ * ALPN "solana-tpu"; Astralane uses ECDSA P-256 with ALPN "astralane-tpu".
  *
- * Install optional deps:  npm install @matrixai/quic selfsigned
+ * Install optional deps:  npm install @matrixai/quic
  */
 async function sendViaQUIC(
   host: string,
@@ -1350,36 +1384,41 @@ async function sendViaQUIC(
     alpn?: string;
     commonName?: string;
     algorithm?: string;
+    key?: string;
+    cert?: string;
   } = {},
 ): Promise<void> {
   // Dynamic imports so the file compiles/runs even without the optional packages
   let QUICClient: any;
-  let selfsigned: any;
   try {
     ({ QUICClient } = await import('@matrixai/quic'));
-    selfsigned = (await import('selfsigned')).default ?? (await import('selfsigned'));
   } catch {
     throw new TradeError(
       501,
-      'QUIC not available: run "npm install @matrixai/quic selfsigned" to enable Soyas/Speedlanding.',
+      'QUIC not available: run "npm install @matrixai/quic" to enable QUIC SWQOS providers.',
     );
   }
 
-  // Generate ephemeral self-signed Ed25519 certificate (no server verification)
-  const pems = selfsigned.generate(
-    [{ name: 'commonName', value: options.commonName ?? 'Solana node' }],
-    { days: 36500, algorithm: options.algorithm ?? 'ed25519' },
-  );
+  let key = options.key;
+  let cert = options.cert;
+  if (!key || !cert) {
+    const pems = options.algorithm === 'ecdsa'
+      ? await createP256ClientCertificate(options.commonName ?? 'Solana node')
+      : await createEd25519ClientCertificate(undefined, options.commonName ?? 'Solana node');
+    key = pems.private;
+    cert = pems.cert;
+  }
 
   const client = await QUICClient.createQUICClient({
     host,
     port,
     config: {
-      key: pems.private,
-      cert: pems.cert,
+      key,
+      cert,
       verifyPeer: false,
       applicationProtos: [options.alpn ?? 'solana-tpu'],
       tlsVersion: 'tlsv13',
+      serverName,
     },
     logger: undefined,
   });
@@ -1394,6 +1433,138 @@ async function sendViaQUIC(
   } finally {
     await client.destroy();
   }
+}
+
+async function createEd25519ClientCertificate(
+  keypairBytes?: Uint8Array,
+  commonName = 'Solana node',
+): Promise<{ private: string; cert: string }> {
+  const nodeCrypto = await import('crypto');
+  const x509 = await import('@peculiar/x509');
+  x509.cryptoProvider.set(nodeCrypto.webcrypto as any);
+
+  let keys: any;
+  let privateDer: Buffer;
+  if (keypairBytes) {
+    const seed = Buffer.from(keypairBytes.subarray(0, 32));
+    const publicKeyBytes = Buffer.from(keypairBytes.subarray(32, 64));
+    privateDer = Buffer.concat([
+      Buffer.from('302e020100300506032b657004220420', 'hex'),
+      seed,
+    ]);
+    const publicDer = Buffer.concat([
+      Buffer.from('302a300506032b6570032100', 'hex'),
+      publicKeyBytes,
+    ]);
+    keys = {
+      privateKey: await nodeCrypto.webcrypto.subtle.importKey(
+        'pkcs8',
+        privateDer,
+        'Ed25519',
+        true,
+        ['sign'],
+      ),
+      publicKey: await nodeCrypto.webcrypto.subtle.importKey(
+        'spki',
+        publicDer,
+        'Ed25519',
+        true,
+        ['verify'],
+      ),
+    };
+  } else {
+    keys = await nodeCrypto.webcrypto.subtle.generateKey(
+      'Ed25519',
+      true,
+      ['sign', 'verify'],
+    );
+    privateDer = Buffer.from(
+      await nodeCrypto.webcrypto.subtle.exportKey('pkcs8', keys.privateKey),
+    );
+  }
+
+  const alg = { name: 'Ed25519' };
+  const cert = await x509.X509CertificateGenerator.createSelfSigned({
+    serialNumber: Buffer.from(nodeCrypto.randomBytes(8)).toString('hex'),
+    name: `CN=${commonName}`,
+    notBefore: new Date('1975-01-01T00:00:00Z'),
+    notAfter: new Date('4096-01-01T00:00:00Z'),
+    signingAlgorithm: alg,
+    keys,
+    extensions: [
+      new x509.BasicConstraintsExtension(false, undefined, true),
+      new x509.KeyUsagesExtension(x509.KeyUsageFlags.digitalSignature, true),
+      new x509.ExtendedKeyUsageExtension(['1.3.6.1.5.5.7.3.2'], false),
+      new x509.SubjectAlternativeNameExtension([{ type: 'ip', value: '0.0.0.0' }], false),
+    ],
+  });
+  const privatePem = nodeCrypto.createPrivateKey({
+    key: privateDer,
+    format: 'der',
+    type: 'pkcs8',
+  }).export({ format: 'pem', type: 'pkcs8' }) as string;
+  return { private: privatePem, cert: cert.toString('pem') };
+}
+
+async function createP256ClientCertificate(
+  commonName = 'Solana node',
+): Promise<{ private: string; cert: string }> {
+  const nodeCrypto = await import('crypto');
+  const x509 = await import('@peculiar/x509');
+  x509.cryptoProvider.set(nodeCrypto.webcrypto as any);
+
+  const keys = await nodeCrypto.webcrypto.subtle.generateKey(
+    { name: 'ECDSA', namedCurve: 'P-256' },
+    true,
+    ['sign', 'verify'],
+  );
+  const privateDer = Buffer.from(
+    await nodeCrypto.webcrypto.subtle.exportKey('pkcs8', keys.privateKey),
+  );
+  const cert = await x509.X509CertificateGenerator.createSelfSigned({
+    serialNumber: Buffer.from(nodeCrypto.randomBytes(8)).toString('hex'),
+    name: `CN=${commonName}`,
+    notBefore: new Date(Date.now() - 60 * 60 * 1000),
+    notAfter: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+    signingAlgorithm: { name: 'ECDSA', hash: 'SHA-256' },
+    keys,
+  });
+  const privatePem = nodeCrypto.createPrivateKey({
+    key: privateDer,
+    format: 'der',
+    type: 'pkcs8',
+  }).export({ format: 'pem', type: 'pkcs8' }) as string;
+  return { private: privatePem, cert: cert.toString('pem') };
+}
+
+function signatureFromSerializedTransaction(raw: Buffer | Uint8Array): string {
+  const data = raw instanceof Buffer ? raw : Buffer.from(raw);
+  const signatureCount = data[0] ?? 0;
+  if (signatureCount !== 1 || data.length < 65) {
+    throw new TradeError(400, 'Only single-signature versioned transactions are supported for SWQOS submit');
+  }
+  return bs58.encode(data.subarray(1, 65));
+}
+
+function solanaKeypairSecretFromBase58(apiKey?: string): Uint8Array {
+  if (!apiKey) {
+    throw new TradeError(400, 'Solami api token is required and must be a base58-encoded Solana keypair');
+  }
+  let decoded: Uint8Array;
+  try {
+    decoded = bs58.decode(apiKey.trim());
+  } catch (e) {
+    throw new TradeError(400, `Solami api token base58 decode failed: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  if (decoded.length !== 64) {
+    throw new TradeError(400, `Solami api token must decode to 64 bytes, got ${decoded.length}`);
+  }
+  return decoded;
+}
+
+async function solamiClientCertificate(apiKey?: string): Promise<{ key: string; cert: string }> {
+  const pems = await createEd25519ClientCertificate(solanaKeypairSecretFromBase58(apiKey));
+  return { key: pems.private, cert: pems.cert };
 }
 
 function hostPortFromHttp(endpoint: string, port: number): { host: string; port: number } {
@@ -1531,7 +1702,7 @@ export class SoyasClient implements SwqosClient {
     _waitConfirmation: boolean,
   ): Promise<string> {
     await sendViaQUIC(this.host, this.port, 'soyas-landing', new Uint8Array(transaction));
-    return '';
+    return signatureFromSerializedTransaction(transaction);
   }
 
   async sendTransactions(
@@ -1542,7 +1713,7 @@ export class SoyasClient implements SwqosClient {
     for (const tx of transactions) {
       await this.sendTransaction(tradeType, tx, waitConfirmation);
     }
-    return transactions.map(() => '');
+    return transactions.map(tx => signatureFromSerializedTransaction(tx));
   }
 
   getTipAccount(): string { return this.tipAccount; }
@@ -1586,7 +1757,7 @@ export class SpeedlandingClient implements SwqosClient {
     _waitConfirmation: boolean,
   ): Promise<string> {
     await sendViaQUIC(this.host, this.port, this.serverName, new Uint8Array(transaction));
-    return '';
+    return signatureFromSerializedTransaction(transaction);
   }
 
   async sendTransactions(
@@ -1597,12 +1768,63 @@ export class SpeedlandingClient implements SwqosClient {
     for (const tx of transactions) {
       await this.sendTransaction(tradeType, tx, waitConfirmation);
     }
-    return transactions.map(() => '');
+    return transactions.map(tx => signatureFromSerializedTransaction(tx));
   }
 
   getTipAccount(): string { return this.tipAccount; }
   getSwqosType(): SwqosType { return SwqosType.Speedlanding; }
   minTipSol(): number { return MIN_TIP_SPEEDLANDING; }
+}
+
+// ===== Solami Client =====
+
+/**
+ * Solami SWQOS client.
+ *
+ * Transport: QUIC with ALPN "solana-tpu".
+ * Endpoint:  host:port (Rust default: beam.solami.dev:11000)
+ * SNI:       "solami-beam" (Rust SDK SOLAMI_SERVER constant)
+ */
+export class SolamiClient implements SwqosClient {
+  private readonly tipAccount: string;
+  private readonly host: string;
+  private readonly port: number;
+
+  constructor(
+    private readonly rpcUrl: string,
+    private readonly endpoint: string,
+    private readonly apiKey?: string,
+  ) {
+    this.tipAccount = randomChoice(SOLAMI_TIP_ACCOUNTS);
+    const lastColon = endpoint.lastIndexOf(':');
+    this.host = lastColon >= 0 ? endpoint.slice(0, lastColon) : endpoint;
+    this.port = lastColon >= 0 ? parseInt(endpoint.slice(lastColon + 1), 10) : 11000;
+  }
+
+  async sendTransaction(
+    _tradeType: TradeType,
+    transaction: Buffer,
+    _waitConfirmation: boolean,
+  ): Promise<string> {
+    const pems = await solamiClientCertificate(this.apiKey);
+    await sendViaQUIC(this.host, this.port, 'solami-beam', new Uint8Array(transaction), pems);
+    return signatureFromSerializedTransaction(transaction);
+  }
+
+  async sendTransactions(
+    tradeType: TradeType,
+    transactions: Buffer[],
+    waitConfirmation: boolean,
+  ): Promise<string[]> {
+    for (const tx of transactions) {
+      await this.sendTransaction(tradeType, tx, waitConfirmation);
+    }
+    return transactions.map(tx => signatureFromSerializedTransaction(tx));
+  }
+
+  getTipAccount(): string { return this.tipAccount; }
+  getSwqosType(): SwqosType { return SwqosType.Solami; }
+  minTipSol(): number { return MIN_TIP_SOLAMI; }
 }
 
 // ===== Client Factory =====
@@ -1620,6 +1842,12 @@ export interface SwqosClientConfig {
 
 export class ClientFactory {
   static createClient(config: SwqosClientConfig, rpcUrl: string): SwqosClient {
+    if (isSwqosTypeBlacklisted(config.type)) {
+      throw new TradeError(
+        400,
+        `SWQOS type is blacklisted by Rust v4.0.21 parity: ${config.type}`
+      );
+    }
     const region = config.region ?? SwqosRegion.Default;
 
     switch (config.type) {
@@ -1726,9 +1954,19 @@ export class ClientFactory {
         return new SpeedlandingClient(rpcUrl, endpoint, config.apiKey);
       }
 
+      case SwqosType.Solami: {
+        const endpoint = config.customUrl || SOLAMI_ENDPOINTS[region];
+        return new SolamiClient(rpcUrl, endpoint, config.apiKey);
+      }
+
       case SwqosType.Default:
-      default:
         return new DefaultClient(rpcUrl);
+
+      default:
+        throw new TradeError(
+          400,
+          `Unsupported SWQOS type for Rust v4.0.21 trading path: ${config.type}`
+        );
     }
   }
 }

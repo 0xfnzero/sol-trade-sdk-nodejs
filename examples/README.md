@@ -9,7 +9,7 @@ npm install
 npx tsx examples/trading_client.ts
 ~~~
 
-Set RUN_LIVE_EXAMPLES=1 only after replacing placeholder params with real RPC/parser data and funding the signer.
+Set RUN_LIVE_EXAMPLES=1 only after replacing placeholder params with real RPC or decoded event data and funding the signer.
 
 ## Coverage
 

@@ -6,8 +6,8 @@ import {
   pumpSwapParamsFromParserTrade,
 } from '../index';
 
-describe('sol-parser-sdk compatibility helpers', () => {
-  it('maps PumpFun quote reserves for USDC parser events', () => {
+describe('decoded event parameter adapter helpers', () => {
+  it('maps PumpFun quote reserves for USDC decoded events', () => {
     const params = pumpFunParamsFromParserTrade({
       quote_mint: CONSTANTS.USDC_TOKEN_ACCOUNT.toBase58(),
       virtual_token_reserves: 1_000_000n,
@@ -26,7 +26,7 @@ describe('sol-parser-sdk compatibility helpers', () => {
     expect(params.bondingCurve.isCashbackCoin).toBe(true);
   });
 
-  it('preserves explicit zero PumpFun quote reserves from parser events', () => {
+  it('preserves explicit zero PumpFun quote reserves from decoded events', () => {
     const params = pumpFunParamsFromParserTrade({
       quote_mint: CONSTANTS.USDC_TOKEN_ACCOUNT.toBase58(),
       virtual_token_reserves: 1_000_000n,
@@ -59,7 +59,7 @@ describe('sol-parser-sdk compatibility helpers', () => {
     expect(params.bondingCurve.realSolReserves).toBe(123_456_789);
   });
 
-  it('maps PumpSwap creator vault accounts from parser events', () => {
+  it('maps PumpSwap creator vault accounts from decoded events', () => {
     const vault = PublicKey.unique();
     const authority = PublicKey.unique();
     const params = pumpSwapParamsFromParserTrade({

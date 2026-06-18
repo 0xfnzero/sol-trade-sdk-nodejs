@@ -1,10 +1,10 @@
 /**
  * SWQOS Providers for Sol Trade SDK
- * Implements all 19 SWQOS (Solana Write Queue Operating System) providers.
- * Based on the Rust/Python SDK implementations.
+ * Implements Rust v4.0.21 SWQOS providers plus legacy extended RPC provider
+ * classes kept for source compatibility.
  */
 
-import { TradeError } from '../index';
+import { TradeError, isSwqosTypeBlacklisted } from '../index';
 
 // ===== Enums =====
 
@@ -26,10 +26,16 @@ export enum SwqosType {
   Soyas = 'Soyas',
   Speedlanding = 'Speedlanding',
   Helius = 'Helius',
+  Solami = 'Solami',
+  /** Legacy extended RPC class, not part of Rust v4.0.21 SWQOS parity. */
   Triton = 'Triton',
+  /** Legacy extended RPC class, not part of Rust v4.0.21 SWQOS parity. */
   QuickNode = 'QuickNode',
+  /** Legacy extended RPC class, not part of Rust v4.0.21 SWQOS parity. */
   Syndica = 'Syndica',
+  /** Legacy extended RPC class, not part of Rust v4.0.21 SWQOS parity. */
   Figment = 'Figment',
+  /** Legacy extended RPC class, not part of Rust v4.0.21 SWQOS parity. */
   Alchemy = 'Alchemy',
   Default = 'Default',
 }
@@ -41,11 +47,12 @@ export enum SwqosRegion {
   NewYork = 'NewYork',
   Frankfurt = 'Frankfurt',
   Amsterdam = 'Amsterdam',
+  Dublin = 'Dublin',
   SLC = 'SLC',
   Tokyo = 'Tokyo',
+  Singapore = 'Singapore',
   London = 'London',
   LosAngeles = 'LosAngeles',
-  Singapore = 'Singapore',
   Default = 'Default',
 }
 
@@ -246,6 +253,7 @@ export class JitoClient extends SwqosClient {
     [SwqosRegion.NewYork]: 'https://mainnet.block-engine.jito.wtf',
     [SwqosRegion.Frankfurt]: 'https://frankfurt.mainnet.block-engine.jito.wtf',
     [SwqosRegion.Amsterdam]: 'https://amsterdam.mainnet.block-engine.jito.wtf',
+    [SwqosRegion.Dublin]: 'https://dublin.mainnet.block-engine.jito.wtf',
     [SwqosRegion.Tokyo]: 'https://tokyo.mainnet.block-engine.jito.wtf',
     [SwqosRegion.SLC]: 'https://slc.mainnet.block-engine.jito.wtf',
     [SwqosRegion.London]: 'https://mainnet.block-engine.jito.wtf',
@@ -377,6 +385,7 @@ export class BloxrouteClient extends SwqosClient {
     [SwqosRegion.NewYork]: 'https://solana.dex.blxrbdn.com',
     [SwqosRegion.Frankfurt]: 'https://solana.dex.blxrbdn.com',
     [SwqosRegion.Amsterdam]: 'https://solana.dex.blxrbdn.com',
+    [SwqosRegion.Dublin]: 'https://solana.dex.blxrbdn.com',
     [SwqosRegion.Tokyo]: 'https://solana.dex.blxrbdn.com',
     [SwqosRegion.SLC]: 'https://solana.dex.blxrbdn.com',
     [SwqosRegion.London]: 'https://solana.dex.blxrbdn.com',
@@ -1063,6 +1072,37 @@ export class SpeedlandingClient extends SwqosClient {
 }
 
 /**
+ * Solami SWQOS client - Rust v4.0.21 parity provider
+ */
+export class SolamiClient extends SwqosClient {
+  private apiUrl: string;
+
+  constructor(config: SwqosConfig) {
+    super(config);
+    this.apiUrl = config.url || 'beam.solami.dev:11000';
+  }
+
+  async submitTransaction(transaction: Buffer, tip = 0): Promise<TransactionResult> {
+    await this.rateLimitCheck();
+    const startTime = Date.now();
+
+    const latencyMs = Date.now() - startTime;
+    const error = 'Solami live submit uses swqos/clients SolamiClient QUIC path, not HTTP provider API';
+    this.updateStats(false, latencyMs, error);
+    return {
+      success: false,
+      provider: 'Solami',
+      latencyMs,
+      error,
+    };
+  }
+
+  getProviderType(): SwqosType {
+    return SwqosType.Solami;
+  }
+}
+
+/**
  * Helius SWQOS client - Enhanced RPC
  */
 export class HeliusClient extends SwqosClient {
@@ -1072,6 +1112,7 @@ export class HeliusClient extends SwqosClient {
     [SwqosRegion.NewYork]: 'https://api.helius-rpc.com',
     [SwqosRegion.Frankfurt]: 'https://api.helius-rpc.com',
     [SwqosRegion.Amsterdam]: 'https://api.helius-rpc.com',
+    [SwqosRegion.Dublin]: 'https://api.helius-rpc.com',
     [SwqosRegion.Tokyo]: 'https://api.helius-rpc.com',
     [SwqosRegion.SLC]: 'https://api.helius-rpc.com',
     [SwqosRegion.London]: 'https://api.helius-rpc.com',
@@ -1471,11 +1512,10 @@ export class DefaultClient extends SwqosClient {
  * Factory for creating SWQOS clients
  */
 export class SwqosClientFactory {
-  private static readonly CLIENT_MAP: Record<SwqosType, new (config: SwqosConfig) => SwqosClient> = {
+  private static readonly CLIENT_MAP: Partial<Record<SwqosType, new (config: SwqosConfig) => SwqosClient>> = {
     [SwqosType.Jito]: JitoClient,
     [SwqosType.Bloxroute]: BloxrouteClient,
     [SwqosType.ZeroSlot]: ZeroSlotClient,
-    [SwqosType.NextBlock]: NextBlockClient,
     [SwqosType.Temporal]: TemporalClient,
     [SwqosType.Node1]: Node1Client,
     [SwqosType.FlashBlock]: FlashBlockClient,
@@ -1486,11 +1526,7 @@ export class SwqosClientFactory {
     [SwqosType.Soyas]: SoyasClient,
     [SwqosType.Speedlanding]: SpeedlandingClient,
     [SwqosType.Helius]: HeliusClient,
-    [SwqosType.Triton]: TritonClient,
-    [SwqosType.QuickNode]: QuickNodeClient,
-    [SwqosType.Syndica]: SyndicaClient,
-    [SwqosType.Figment]: FigmentClient,
-    [SwqosType.Alchemy]: AlchemyClient,
+    [SwqosType.Solami]: SolamiClient,
     [SwqosType.Default]: DefaultClient as any,
   };
 
@@ -1498,6 +1534,12 @@ export class SwqosClientFactory {
    * Create SWQOS client based on config type
    */
   static createClient(config: SwqosConfig): SwqosClient {
+    if (isSwqosTypeBlacklisted(config.swqosType as any)) {
+      throw new TradeError(
+        400,
+        `SWQOS type is blacklisted by Rust v4.0.21 parity: ${config.swqosType}`
+      );
+    }
     const ClientClass = this.CLIENT_MAP[config.swqosType];
     if (!ClientClass) {
       throw new TradeError(400, `Unknown SWQOS type: ${config.swqosType}`);

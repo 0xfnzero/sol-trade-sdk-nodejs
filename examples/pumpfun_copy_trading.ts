@@ -13,7 +13,7 @@ async function main() {
   const buyParams = exampleBuyParams(DexType.PumpFun);
   const sellParams = exampleSellParams(DexType.PumpFun);
 
-  describeDryRun('PumpFun copy-trading example with parser-derived fee recipient support');
+  describeDryRun('PumpFun copy-trading example with decoded event fee recipient support');
   console.log('Wallet:', client.getPayer().toBase58());
   console.log('Buy params:', { dexType: buyParams.dexType, amount: buyParams.inputTokenAmount });
   console.log('Sell params:', { dexType: sellParams.dexType, amount: sellParams.inputTokenAmount });

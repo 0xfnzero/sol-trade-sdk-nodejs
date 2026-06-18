@@ -84,7 +84,7 @@ export function tradeConfig(options: Partial<TradeConfig> = {}): TradeConfig {
   return TradeConfigBuilder.create(rpcUrl())
     .swqosConfigs(options.swqosConfigs ?? defaultSwqosConfigs())
     .useSeedOptimize(options.useSeedOptimize ?? true)
-    .swqosCoresFromEnd(options.swqosCoresFromEnd ?? true)
+    .swqosCoresFromEnd(options.swqosCoresFromEnd ?? false)
     .maxSwqosSubmitConcurrency(options.maxSwqosSubmitConcurrency ?? 8)
     .gasStrategy(options.gasStrategy ?? lowLatencyGasStrategy())
     .logEnabled(options.logEnabled ?? true)
@@ -290,7 +290,7 @@ export function exampleSellParams(dexType: DexType, mint?: PublicKey): TradeSell
 
 export function describeDryRun(name: string): void {
   console.log(name + ' prepared with current SDK types.');
-  console.log('Set RUN_LIVE_EXAMPLES=1 and replace example params with real parser/RPC data before sending transactions.');
+  console.log('Set RUN_LIVE_EXAMPLES=1 and replace example params with real RPC or decoded event data before sending transactions.');
 }
 
 export function logResult(label: string, result: TradeResult): void {

@@ -94,6 +94,50 @@ export enum TradeTokenType {
 }
 
 /**
+ * Account lifecycle policy for high-level trade requests.
+ */
+export enum AccountPolicy {
+  Auto = 'Auto',
+  HotPathMinimal = 'HotPathMinimal',
+  CreateMissing = 'CreateMissing',
+  AssumePrepared = 'AssumePrepared',
+}
+
+/**
+ * High-level buy sizing intent.
+ */
+export type BuyAmount =
+  | { type: 'ExactInput'; amount: number }
+  | { type: 'ExactOutput'; outputAmount: number; maxInputAmount: number }
+  | { type: 'WithMaxInput'; quoteAmount: number };
+
+export const BuyAmount = {
+  ExactInput: (amount: number): BuyAmount => ({ type: 'ExactInput', amount }),
+  ExactOutput: (outputAmount: number, maxInputAmount: number): BuyAmount => ({
+    type: 'ExactOutput',
+    outputAmount,
+    maxInputAmount,
+  }),
+  WithMaxInput: (quoteAmount: number): BuyAmount => ({ type: 'WithMaxInput', quoteAmount }),
+} as const;
+
+/**
+ * High-level sell sizing intent.
+ */
+export type SellAmount =
+  | { type: 'ExactInput'; amount: number }
+  | { type: 'ExactOutput'; outputAmount: number; maxInputAmount: number };
+
+export const SellAmount = {
+  ExactInput: (amount: number): SellAmount => ({ type: 'ExactInput', amount }),
+  ExactOutput: (outputAmount: number, maxInputAmount: number): SellAmount => ({
+    type: 'ExactOutput',
+    outputAmount,
+    maxInputAmount,
+  }),
+} as const;
+
+/**
  * Trade operation type
  */
 export enum TradeType {
@@ -136,6 +180,7 @@ export enum SwqosType {
   Lightspeed = 'Lightspeed',
   Soyas = 'Soyas',
   Speedlanding = 'Speedlanding',
+  Solami = 'Solami',
   Triton = 'Triton',
   QuickNode = 'QuickNode',
   Syndica = 'Syndica',
@@ -171,19 +216,25 @@ export interface SwqosConfig {
   swqosOnly?: boolean;
 }
 
+const SWQOS_BLACKLISTED_TYPES = new Set<SwqosType>([
+  SwqosType.NextBlock,
+]);
+
+export function isSwqosTypeBlacklisted(type: SwqosType): boolean {
+  return SWQOS_BLACKLISTED_TYPES.has(type);
+}
+
 function normalizeSwqosConfigs(rpcUrl: string, configs: SwqosConfig[]): SwqosConfig[] {
-  if (configs.length === 0 || configs.some((c) => c.type === SwqosType.Default)) {
-    return configs;
-  }
-  return [
-    ...configs,
-    {
+  const out = [...configs];
+  if (!out.some((c) => c.type === SwqosType.Default)) {
+    out.push({
       type: SwqosType.Default,
       region: SwqosRegion.Default,
       apiKey: '',
       customUrl: rpcUrl,
-    },
-  ];
+    });
+  }
+  return out.filter((c) => !isSwqosTypeBlacklisted(c.type));
 }
 
 /**
@@ -223,6 +274,7 @@ export interface TradeBuyParams {
   extensionParams: DexParamEnum;
   addressLookupTableAccount?: AddressLookupTableAccount;
   waitTxConfirmed?: boolean;
+  waitForAllSubmits?: boolean;
   createInputTokenAta?: boolean;
   closeInputTokenAta?: boolean;
   createMintAta?: boolean;
@@ -248,6 +300,7 @@ export interface TradeSellParams {
   extensionParams: DexParamEnum;
   addressLookupTableAccount?: AddressLookupTableAccount;
   waitTxConfirmed?: boolean;
+  waitForAllSubmits?: boolean;
   createOutputTokenAta?: boolean;
   closeOutputTokenAta?: boolean;
   closeMintTokenAta?: boolean;
@@ -256,6 +309,228 @@ export interface TradeSellParams {
   gasFeeStrategy?: GasFeeStrategyConfig;
   simulate?: boolean;
   grpcRecvUs?: number;
+}
+
+/**
+ * Simple buy request that describes trade intent instead of low-level ATA flags.
+ */
+export interface SimpleBuyParams {
+  dexType: DexType;
+  payWith: TradeTokenType;
+  mint: PublicKey;
+  amount: BuyAmount;
+  extensionParams: DexParamEnum;
+  recentBlockhash?: string;
+  gasFeeStrategy?: GasFeeStrategyConfig;
+  slippageBasisPoints?: number;
+  accountPolicy?: AccountPolicy;
+  addressLookupTableAccount?: AddressLookupTableAccount;
+  waitTxConfirmed?: boolean;
+  waitForAllSubmits?: boolean;
+  durableNonce?: DurableNonceInfo;
+  simulate?: boolean;
+  grpcRecvUs?: number;
+}
+
+/**
+ * Simple sell request that describes trade intent instead of low-level ATA flags.
+ */
+export interface SimpleSellParams {
+  dexType: DexType;
+  receiveAs: TradeTokenType;
+  mint: PublicKey;
+  amount: SellAmount;
+  extensionParams: DexParamEnum;
+  recentBlockhash?: string;
+  gasFeeStrategy?: GasFeeStrategyConfig;
+  slippageBasisPoints?: number;
+  accountPolicy?: AccountPolicy;
+  addressLookupTableAccount?: AddressLookupTableAccount;
+  waitTxConfirmed?: boolean;
+  waitForAllSubmits?: boolean;
+  durableNonce?: DurableNonceInfo;
+  simulate?: boolean;
+  withTip?: boolean;
+  grpcRecvUs?: number;
+}
+
+export function createSimpleBuyParams(
+  dexType: DexType,
+  payWith: TradeTokenType,
+  mint: PublicKey,
+  amount: BuyAmount,
+  extensionParams: DexParamEnum,
+  recentBlockhash: string,
+  gasFeeStrategy?: GasFeeStrategyConfig
+): SimpleBuyParams {
+  return {
+    dexType,
+    payWith,
+    mint,
+    amount,
+    extensionParams,
+    recentBlockhash,
+    gasFeeStrategy,
+    accountPolicy: AccountPolicy.Auto,
+    waitTxConfirmed: false,
+    waitForAllSubmits: false,
+    simulate: false,
+  };
+}
+
+export function createSimpleBuyParamsWithDurableNonce(
+  dexType: DexType,
+  payWith: TradeTokenType,
+  mint: PublicKey,
+  amount: BuyAmount,
+  extensionParams: DexParamEnum,
+  durableNonce: DurableNonceInfo,
+  gasFeeStrategy?: GasFeeStrategyConfig
+): SimpleBuyParams {
+  return {
+    ...createSimpleBuyParams(dexType, payWith, mint, amount, extensionParams, '', gasFeeStrategy),
+    recentBlockhash: undefined,
+    durableNonce,
+  };
+}
+
+export function createSimpleSellParams(
+  dexType: DexType,
+  receiveAs: TradeTokenType,
+  mint: PublicKey,
+  amount: SellAmount,
+  extensionParams: DexParamEnum,
+  recentBlockhash: string,
+  gasFeeStrategy?: GasFeeStrategyConfig
+): SimpleSellParams {
+  return {
+    dexType,
+    receiveAs,
+    mint,
+    amount,
+    extensionParams,
+    recentBlockhash,
+    gasFeeStrategy,
+    accountPolicy: AccountPolicy.Auto,
+    waitTxConfirmed: false,
+    waitForAllSubmits: false,
+    simulate: false,
+    withTip: true,
+  };
+}
+
+export function createSimpleSellParamsWithDurableNonce(
+  dexType: DexType,
+  receiveAs: TradeTokenType,
+  mint: PublicKey,
+  amount: SellAmount,
+  extensionParams: DexParamEnum,
+  durableNonce: DurableNonceInfo,
+  gasFeeStrategy?: GasFeeStrategyConfig
+): SimpleSellParams {
+  return {
+    ...createSimpleSellParams(dexType, receiveAs, mint, amount, extensionParams, '', gasFeeStrategy),
+    recentBlockhash: undefined,
+    durableNonce,
+  };
+}
+
+export function withSimpleBuySlippage(params: SimpleBuyParams, value: number): SimpleBuyParams {
+  return { ...params, slippageBasisPoints: value };
+}
+
+export function withSimpleBuyAccountPolicy(
+  params: SimpleBuyParams,
+  value: AccountPolicy
+): SimpleBuyParams {
+  return { ...params, accountPolicy: value };
+}
+
+export function withSimpleBuyAddressLookupTableAccount(
+  params: SimpleBuyParams,
+  value: AddressLookupTableAccount
+): SimpleBuyParams {
+  return { ...params, addressLookupTableAccount: value };
+}
+
+export function withSimpleBuyDurableNonce(
+  params: SimpleBuyParams,
+  value: DurableNonceInfo
+): SimpleBuyParams {
+  return { ...params, durableNonce: value, recentBlockhash: undefined };
+}
+
+export function withSimpleBuyWaitTxConfirmed(
+  params: SimpleBuyParams,
+  value: boolean
+): SimpleBuyParams {
+  return { ...params, waitTxConfirmed: value };
+}
+
+export function withSimpleBuyWaitForAllSubmits(
+  params: SimpleBuyParams,
+  value: boolean
+): SimpleBuyParams {
+  return { ...params, waitForAllSubmits: value };
+}
+
+export function withSimpleBuySimulate(params: SimpleBuyParams, value: boolean): SimpleBuyParams {
+  return { ...params, simulate: value };
+}
+
+export function withSimpleBuyGrpcRecvUs(params: SimpleBuyParams, value: number): SimpleBuyParams {
+  return { ...params, grpcRecvUs: value };
+}
+
+export function withSimpleSellSlippage(params: SimpleSellParams, value: number): SimpleSellParams {
+  return { ...params, slippageBasisPoints: value };
+}
+
+export function withSimpleSellAccountPolicy(
+  params: SimpleSellParams,
+  value: AccountPolicy
+): SimpleSellParams {
+  return { ...params, accountPolicy: value };
+}
+
+export function withSimpleSellAddressLookupTableAccount(
+  params: SimpleSellParams,
+  value: AddressLookupTableAccount
+): SimpleSellParams {
+  return { ...params, addressLookupTableAccount: value };
+}
+
+export function withSimpleSellDurableNonce(
+  params: SimpleSellParams,
+  value: DurableNonceInfo
+): SimpleSellParams {
+  return { ...params, durableNonce: value, recentBlockhash: undefined };
+}
+
+export function withSimpleSellWaitTxConfirmed(
+  params: SimpleSellParams,
+  value: boolean
+): SimpleSellParams {
+  return { ...params, waitTxConfirmed: value };
+}
+
+export function withSimpleSellWaitForAllSubmits(
+  params: SimpleSellParams,
+  value: boolean
+): SimpleSellParams {
+  return { ...params, waitForAllSubmits: value };
+}
+
+export function withSimpleSellSimulate(params: SimpleSellParams, value: boolean): SimpleSellParams {
+  return { ...params, simulate: value };
+}
+
+export function withSimpleSellTip(params: SimpleSellParams, value: boolean): SimpleSellParams {
+  return { ...params, withTip: value };
+}
+
+export function withSimpleSellGrpcRecvUs(params: SimpleSellParams, value: number): SimpleSellParams {
+  return { ...params, grpcRecvUs: value };
 }
 
 /**
@@ -319,7 +594,7 @@ export interface PumpFunParams {
   observedTradeCreator?: PublicKey;
   feeSharingCreatorVaultIfActive?: PublicKey;
   closeTokenAccountWhenSell?: boolean;
-  /** Parser/gRPC fee recipient; omit or `PublicKey.default` for SDK random pool (Rust parity). */
+  /** Event-adapter fee recipient; omit or `PublicKey.default` for SDK random pool (Rust parity). */
   feeRecipient?: PublicKey;
   /** PumpFun V2 quote mint; omit or default pubkey for WSOL. */
   quoteMint?: PublicKey;
@@ -362,14 +637,14 @@ function parserU64(value: bigint | number | string | undefined): number {
   if (value === undefined || value === null || value === '') return 0;
   const n = typeof value === 'bigint' ? value : BigInt(value);
   if (n > BigInt(Number.MAX_SAFE_INTEGER)) {
-    throw new TradeError(106, `parser u64 value ${n.toString()} exceeds JavaScript safe integer range`);
+    throw new TradeError(106, `event u64 value ${n.toString()} exceeds JavaScript safe integer range`);
   }
   return Number(n);
 }
 
 /**
- * Build PumpFun params directly from a sol-parser-sdk PumpFunTradeEvent.
- * The parser's `virtual_quote_reserves` / `real_quote_reserves` are mapped to
+ * Build PumpFun params from an already-decoded trade event object.
+ * The event's `virtual_quote_reserves` / `real_quote_reserves` are mapped to
  * the SDK's quote reserve fields used by slippage calculation.
  */
 export function pumpFunParamsFromParserTrade(
@@ -603,8 +878,8 @@ export class TradeConfigBuilder {
   private _checkMinTip: boolean = false;
   private _mevProtection: boolean = false;
   private _useSeedOptimize: boolean = true;
-  private _swqosCoresFromEnd: boolean = true;
-  private _createWsolAtaOnStartup: boolean = false;
+  private _swqosCoresFromEnd: boolean = false;
+  private _createWsolAtaOnStartup: boolean = true;
   private _gasFeeStrategy?: GasFeeStrategyConfig;
   private _gasStrategy?: GasFeeStrategyClass;
   private _middlewareManager?: MiddlewareManager;
@@ -715,7 +990,8 @@ export function recommendedSenderThreadCoreIndices(
   if (swqosCount <= 0 || availableCores <= 0) {
     return [];
   }
-  const count = Math.min(swqosCount, availableCores);
+  const maxByCores = Math.max(Math.floor((availableCores * 2) / 3), 1);
+  const count = Math.min(swqosCount, maxByCores, availableCores);
   if (fromEnd) {
     return Array.from({ length: count }, (_, i) => availableCores - count + i);
   }
@@ -752,6 +1028,154 @@ function validateDexParamEnum(dexType: DexType, ext: DexParamEnum): void {
       `extensionParams.type (${ext.type}) must match dexType (${String(dexType)})`
     );
   }
+}
+
+function buyAccountFlags(policy: AccountPolicy = AccountPolicy.Auto): {
+  createInputTokenAta: boolean;
+  createMintAta: boolean;
+  closeInputTokenAta: boolean;
+} {
+  switch (policy) {
+    case AccountPolicy.HotPathMinimal:
+    case AccountPolicy.AssumePrepared:
+      return {
+        createInputTokenAta: false,
+        createMintAta: false,
+        closeInputTokenAta: false,
+      };
+    case AccountPolicy.CreateMissing:
+      return {
+        createInputTokenAta: true,
+        createMintAta: true,
+        closeInputTokenAta: false,
+      };
+    case AccountPolicy.Auto:
+    default:
+      return {
+        createInputTokenAta: false,
+        createMintAta: true,
+        closeInputTokenAta: false,
+      };
+  }
+}
+
+function sellAccountFlags(
+  policy: AccountPolicy = AccountPolicy.Auto,
+  receiveAs: TradeTokenType
+): {
+  createOutputTokenAta: boolean;
+  closeOutputTokenAta: boolean;
+  closeMintTokenAta: boolean;
+} {
+  switch (policy) {
+    case AccountPolicy.HotPathMinimal:
+    case AccountPolicy.AssumePrepared:
+      return {
+        createOutputTokenAta: false,
+        closeOutputTokenAta: false,
+        closeMintTokenAta: false,
+      };
+    case AccountPolicy.CreateMissing:
+      return {
+        createOutputTokenAta: true,
+        closeOutputTokenAta: false,
+        closeMintTokenAta: false,
+      };
+    case AccountPolicy.Auto:
+    default:
+      return {
+        createOutputTokenAta: receiveAs !== TradeTokenType.SOL,
+        closeOutputTokenAta: false,
+        closeMintTokenAta: false,
+      };
+  }
+}
+
+export function simpleBuyParamsToTradeBuyParams(
+  params: SimpleBuyParams
+): TradeBuyParams {
+  let inputTokenAmount: number;
+  let fixedOutputTokenAmount: number | undefined;
+  let useExactSolAmount: boolean;
+
+  switch (params.amount.type) {
+    case 'ExactInput':
+      inputTokenAmount = params.amount.amount;
+      useExactSolAmount = true;
+      break;
+    case 'ExactOutput':
+      inputTokenAmount = params.amount.maxInputAmount;
+      fixedOutputTokenAmount = params.amount.outputAmount;
+      useExactSolAmount = true;
+      break;
+    case 'WithMaxInput':
+      inputTokenAmount = params.amount.quoteAmount;
+      useExactSolAmount = false;
+      break;
+  }
+
+  const flags = buyAccountFlags(params.accountPolicy);
+  return {
+    dexType: params.dexType,
+    inputTokenType: params.payWith,
+    mint: params.mint,
+    inputTokenAmount,
+    slippageBasisPoints: params.slippageBasisPoints,
+    recentBlockhash: params.durableNonce ? undefined : params.recentBlockhash,
+    extensionParams: params.extensionParams,
+    addressLookupTableAccount: params.addressLookupTableAccount,
+    waitTxConfirmed: params.waitTxConfirmed ?? false,
+    waitForAllSubmits: params.waitForAllSubmits ?? false,
+    createInputTokenAta: flags.createInputTokenAta,
+    closeInputTokenAta: flags.closeInputTokenAta,
+    createMintAta: flags.createMintAta,
+    durableNonce: params.durableNonce,
+    fixedOutputTokenAmount,
+    gasFeeStrategy: params.gasFeeStrategy,
+    simulate: params.simulate ?? false,
+    useExactSolAmount,
+    grpcRecvUs: params.grpcRecvUs,
+  };
+}
+
+export function simpleSellParamsToTradeSellParams(
+  params: SimpleSellParams
+): TradeSellParams {
+  let inputTokenAmount: number;
+  let fixedOutputTokenAmount: number | undefined;
+
+  switch (params.amount.type) {
+    case 'ExactInput':
+      inputTokenAmount = params.amount.amount;
+      break;
+    case 'ExactOutput':
+      inputTokenAmount = params.amount.maxInputAmount;
+      fixedOutputTokenAmount = params.amount.outputAmount;
+      break;
+  }
+
+  const flags = sellAccountFlags(params.accountPolicy, params.receiveAs);
+  return {
+    dexType: params.dexType,
+    outputTokenType: params.receiveAs,
+    mint: params.mint,
+    inputTokenAmount,
+    slippageBasisPoints: params.slippageBasisPoints,
+    recentBlockhash: params.durableNonce ? undefined : params.recentBlockhash,
+    withTip: params.withTip ?? true,
+    extensionParams: params.extensionParams,
+    addressLookupTableAccount: params.addressLookupTableAccount,
+    waitTxConfirmed: params.waitTxConfirmed ?? false,
+    waitForAllSubmits: params.waitForAllSubmits ?? false,
+    createOutputTokenAta: flags.createOutputTokenAta,
+    closeOutputTokenAta: flags.closeOutputTokenAta,
+    closeMintTokenAta: flags.closeMintTokenAta,
+    durableNonce: params.durableNonce,
+    fixedOutputTokenAmount,
+    gasFeeStrategy: params.gasFeeStrategy,
+    simulate: params.simulate ?? false,
+    grpcRecvUs: params.grpcRecvUs,
+  };
 }
 
 function mapPumpFunParams(p: PumpFunParams): PumpFunBuilderParams {
@@ -814,12 +1238,14 @@ interface TxExecContext {
   gasFeeStrategy?: GasFeeStrategyConfig;
   withTip?: boolean;
   grpcRecvUs?: number;
+  waitForAllSubmits?: boolean;
   /** Rust `execute_parallel`: multi-SWQOS buy requires durable nonce; also drives nonce advance + blockhash. */
   durableNonce?: DurableNonceInfo;
 }
 
 /** Rust `async_executor`: `FAST_SUBMIT_RESULT_TIMEOUT` when `wait_transaction_confirmed` is false. */
 const SWQOS_SUBMIT_TIMEOUT_MS_WHEN_NO_CONFIRM = 5000;
+const PACKET_DATA_SIZE = 1232;
 
 /** Rust `executor::simulate_transaction` / `RpcSimulateTransactionConfig` (processed, inner ix, no sig verify). */
 export const RUST_PARITY_SIMULATE_CONFIG: SimulateTransactionConfig = {
@@ -829,7 +1255,7 @@ export const RUST_PARITY_SIMULATE_CONFIG: SimulateTransactionConfig = {
   innerInstructions: true,
 };
 
-/** Instruction order matches Rust `trading/common/transaction_builder.rs` `build_transaction`: tip → compute budget → business. */
+/** Instruction order matches Rust `trading/common/transaction_builder.rs` `build_transaction`: nonce → tip → compute budget → business. */
 function buildInstructionListWithGasAndTip(
   coreInstructions: TransactionInstruction[],
   payer: PublicKey,
@@ -890,6 +1316,29 @@ function buildSignedVersionedTransaction(
   );
   const tx = new VersionedTransaction(messageV0);
   tx.sign([payer]);
+  let serializedLen: number;
+  try {
+    serializedLen = tx.serialize().length;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (
+      message.includes('encoding overruns') ||
+      message.toLowerCase().includes('too large')
+    ) {
+      throw new TradeError(
+        109,
+        `transaction too large: exceeds ${PACKET_DATA_SIZE}; SDK did not remove compute budget or relay tip because that changes transaction priority semantics. Use an address lookup table or pre-create token ATAs before submitting`,
+        error as Error
+      );
+    }
+    throw error;
+  }
+  if (serializedLen > PACKET_DATA_SIZE) {
+    throw new TradeError(
+      109,
+      `transaction too large: ${serializedLen} > ${PACKET_DATA_SIZE}; SDK did not remove compute budget or relay tip because that changes transaction priority semantics. Use an address lookup table or pre-create token ATAs before submitting`
+    );
+  }
   return tx;
 }
 
@@ -1249,7 +1698,7 @@ export class TradingClient {
    */
   async buy(params: TradeBuyParams): Promise<TradeResult> {
     const blockhash =
-      params.recentBlockhash ?? params.durableNonce?.nonceHash;
+      params.durableNonce?.nonceHash ?? params.recentBlockhash;
     if (!blockhash) {
       throw new TradeError(
         1,
@@ -1296,7 +1745,7 @@ export class TradingClient {
       processedInstructions,
       blockhash,
       params.addressLookupTableAccount,
-      params.waitTxConfirmed ?? true,
+      params.waitTxConfirmed ?? false,
       params.simulate,
       {
         tradeType: TradeType.Buy,
@@ -1304,9 +1753,17 @@ export class TradingClient {
         gasFeeStrategy: params.gasFeeStrategy,
         withTip: true,
         grpcRecvUs: params.grpcRecvUs,
+        waitForAllSubmits: params.waitForAllSubmits ?? false,
         durableNonce: params.durableNonce,
       }
     );
+  }
+
+  /**
+   * Execute a high-level buy request.
+   */
+  async buySimple(params: SimpleBuyParams): Promise<TradeResult> {
+    return this.buy(simpleBuyParamsToTradeBuyParams(params));
   }
 
   /**
@@ -1314,7 +1771,7 @@ export class TradingClient {
    */
   async sell(params: TradeSellParams): Promise<TradeResult> {
     const blockhash =
-      params.recentBlockhash ?? params.durableNonce?.nonceHash;
+      params.durableNonce?.nonceHash ?? params.recentBlockhash;
     if (!blockhash) {
       throw new TradeError(
         1,
@@ -1361,7 +1818,7 @@ export class TradingClient {
       processedInstructions,
       blockhash,
       params.addressLookupTableAccount,
-      params.waitTxConfirmed ?? true,
+      params.waitTxConfirmed ?? false,
       params.simulate,
       {
         tradeType: TradeType.Sell,
@@ -1369,9 +1826,17 @@ export class TradingClient {
         gasFeeStrategy: params.gasFeeStrategy,
         withTip: params.withTip ?? true,
         grpcRecvUs: params.grpcRecvUs,
+        waitForAllSubmits: params.waitForAllSubmits ?? false,
         durableNonce: params.durableNonce,
       }
     );
+  }
+
+  /**
+   * Execute a high-level sell request.
+   */
+  async sellSimple(params: SimpleSellParams): Promise<TradeResult> {
+    return this.sell(simpleSellParamsToTradeSellParams(params));
   }
 
   /**
@@ -1905,7 +2370,7 @@ export class TradingClient {
     simulate?: boolean,
     execCtx?: TxExecContext
   ): Promise<TradeResult> {
-    const blockhash = recentBlockhash ?? execCtx?.durableNonce?.nonceHash;
+    const blockhash = execCtx?.durableNonce?.nonceHash ?? recentBlockhash;
     if (!blockhash) {
       return {
         success: false,
@@ -2200,7 +2665,8 @@ export class TradingClient {
         };
 
         const submitPromises = swqosTasks.map((task) => submitTask(task));
-        const results = waitConfirmed
+        const waitForAllSubmits = execCtx?.waitForAllSubmits ?? false;
+        const results = waitConfirmed || waitForAllSubmits
           ? await Promise.all(submitPromises)
           : await collectUntilFirstSuccess(submitPromises, (result) => result.ok);
 
@@ -2249,10 +2715,9 @@ export class TradingClient {
       );
 
       if (waitConfirmed) {
-        await this.connection.confirmTransaction(
-          signature,
-          this._config.commitment ?? 'confirmed'
-        );
+        await confirmAnyTransactionSignature(this.connection, [signature], {
+          commitment: this._config.commitment ?? 'confirmed',
+        });
       }
 
       return {
@@ -2266,6 +2731,22 @@ export class TradingClient {
           success: false,
           signatures: [],
           error,
+          timings: [],
+        };
+      }
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (
+        errorMessage.includes('encoding overruns') ||
+        errorMessage.toLowerCase().includes('too large')
+      ) {
+        return {
+          success: false,
+          signatures: [],
+          error: new TradeError(
+            109,
+            `transaction too large: exceeds ${PACKET_DATA_SIZE}; SDK did not remove compute budget or relay tip because that changes transaction priority semantics. Use an address lookup table or pre-create token ATAs before submitting`,
+            error as Error
+          ),
           timings: [],
         };
       }
@@ -2294,13 +2775,27 @@ export function createTradeConfig(
   swqosConfigs: SwqosConfig[] = [],
   options?: Partial<Omit<TradeConfig, 'rpcUrl' | 'swqosConfigs'>>
 ): TradeConfig {
-  const { commitment, logEnabled, ...rest } = options ?? {};
+  const {
+    commitment,
+    logEnabled,
+    checkMinTip,
+    mevProtection,
+    useSeedOptimize,
+    swqosCoresFromEnd,
+    createWsolAtaOnStartup,
+    ...rest
+  } = options ?? {};
   return {
     rpcUrl,
     swqosConfigs: normalizeSwqosConfigs(rpcUrl, swqosConfigs),
     ...rest,
     commitment: commitment ?? 'confirmed',
     logEnabled: logEnabled ?? true,
+    checkMinTip: checkMinTip ?? false,
+    mevProtection: mevProtection ?? false,
+    useSeedOptimize: useSeedOptimize ?? true,
+    swqosCoresFromEnd: swqosCoresFromEnd ?? false,
+    createWsolAtaOnStartup: createWsolAtaOnStartup ?? true,
   };
 }
 

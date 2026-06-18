@@ -13,7 +13,7 @@ async function main() {
   const buyParams = exampleBuyParams(DexType.Bonk);
   const sellParams = exampleSellParams(DexType.Bonk);
 
-  describeDryRun('Bonk copy-trading example using parser event reserves');
+  describeDryRun('Bonk copy-trading example using decoded event reserves');
   console.log('Wallet:', client.getPayer().toBase58());
   console.log('Buy params:', { dexType: buyParams.dexType, amount: buyParams.inputTokenAmount });
   console.log('Sell params:', { dexType: sellParams.dexType, amount: sellParams.inputTokenAmount });
