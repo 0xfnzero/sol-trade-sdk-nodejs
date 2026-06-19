@@ -71,6 +71,17 @@
 | **Python** | [sol-trade-sdk-python](https://github.com/0xfnzero/sol-trade-sdk-python) | 原生 async/await 支持 |
 | **Go** | [sol-trade-sdk-golang](https://github.com/0xfnzero/sol-trade-sdk-golang) | 并发安全，goroutine 支持 |
 
+## 这个 SDK 适合什么场景
+
+`sol-trade-sdk-nodejs` 将 FnZero Solana 交易 SDK 带到 TypeScript 和 Node.js 生态，适合 JavaScript/TypeScript 交易机器人、跟单服务、狙击机器人、后端自动化和 DEX 集成场景，在保持 Rust SDK 行为对齐的同时提供低延迟交易构建能力。
+
+| 方向 | 覆盖范围 |
+|------|----------|
+| DEX 协议 | PumpFun、PumpSwap、Bonk、Meteora DAMM v2、Raydium AMM v4、Raydium CPMM |
+| 提交通道 | 默认 Solana RPC，以及 Jito、Nextblock、ZeroSlot、Temporal、Bloxroute、FlashBlock、BlockRazor、Node1、Astralane、Solami 等 SWQoS 服务 |
+| 交易流程 | `buySimple` / `sellSimple`、旧版 buy/sell 参数、跟单交易、狙击交易、地址查找表、durable nonce、中间件、共享基础设施 |
+| 运行环境 | Node.js 18+、TypeScript、npm/yarn/pnpm 项目 |
+
 ## 🔖 当前版本
 
 **npm package:** `sol-trade-sdk@0.1.2`

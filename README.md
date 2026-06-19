@@ -71,6 +71,17 @@ This SDK is available in multiple languages:
 | **Python** | [sol-trade-sdk-python](https://github.com/0xfnzero/sol-trade-sdk-python) | Async/await native support |
 | **Go** | [sol-trade-sdk-golang](https://github.com/0xfnzero/sol-trade-sdk-golang) | Concurrent-safe with goroutine support |
 
+## What This SDK Is For
+
+`sol-trade-sdk-nodejs` brings the FnZero Solana trading SDK to TypeScript and Node.js. It is built for JavaScript/TypeScript trading bots, copy-trading services, sniper bots, backend automation, and DEX integrations that need low-latency transaction construction with Rust SDK behavior parity.
+
+| Area | Coverage |
+|------|----------|
+| DEX protocols | PumpFun, PumpSwap, Bonk, Meteora DAMM v2, Raydium AMM v4, Raydium CPMM |
+| Submit lanes | Default Solana RPC plus Jito, Nextblock, ZeroSlot, Temporal, Bloxroute, FlashBlock, BlockRazor, Node1, Astralane, Solami, and other SWQoS providers |
+| Trading workflows | `buySimple` / `sellSimple`, legacy buy/sell params, copy trading, sniper trading, address lookup tables, durable nonce, middleware, shared infrastructure |
+| Runtime | Node.js 18+, TypeScript, npm/yarn/pnpm projects |
+
 ## 🔖 Current Release
 
 **npm package:** `sol-trade-sdk@0.1.2`
