@@ -84,7 +84,7 @@
 
 ## 🔖 当前版本
 
-**npm package:** `sol-trade-sdk@0.1.2`
+**npm package:** `sol-trade-sdk@0.1.3`
 
 本版本刷新 PumpFun V2 与 USDC quote 池处理逻辑，确保默认 RPC 提交通道会和 SWQoS 通道一起发出，并将 Raydium CPMM fixed-output 交易对齐到链上 `swap_base_out` 指令。交易执行必须由调用方传入 `recentBlockhash` 或 durable nonce；热路径不会查询 RPC 获取 blockhash、账户或余额数据。
 
@@ -139,11 +139,11 @@ npm run build
 ### 使用 NPM
 
 ```bash
-npm install sol-trade-sdk@0.1.2
+npm install sol-trade-sdk@0.1.3
 # 或
-yarn add sol-trade-sdk@0.1.2
+yarn add sol-trade-sdk@0.1.3
 # 或
-pnpm add sol-trade-sdk@0.1.2
+pnpm add sol-trade-sdk@0.1.3
 ```
 
 ## 🛠️ 使用示例
