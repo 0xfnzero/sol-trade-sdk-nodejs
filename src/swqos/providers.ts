@@ -4,7 +4,20 @@
  * classes kept for source compatibility.
  */
 
-import { TradeError, isSwqosTypeBlacklisted } from '../index';
+import {
+  AstralaneTransport,
+  TradeError,
+  TradeType,
+  SwqosTransport,
+  isSwqosTypeBlacklisted,
+} from '../index';
+import {
+  AstralaneClient as SenderAstralaneClient,
+  BlockRazorClient as SenderBlockRazorClient,
+  ClientFactory as SenderClientFactory,
+  SolamiClient as SenderSolamiClient,
+  SpeedlandingClient as SenderSpeedlandingClient,
+} from './clients';
 
 // ===== Enums =====
 
@@ -95,6 +108,9 @@ export interface SwqosConfig {
   enabled?: boolean;
   priorityFeeMultiplier?: number;
   mevProtection?: MevProtectionLevel;
+  transport?: SwqosTransport;
+  astralaneTransport?: AstralaneTransport;
+  swqosOnly?: boolean;
   customHeaders?: Record<string, string>;
   rateLimitRps?: number;
 }
@@ -237,6 +253,67 @@ export abstract class SwqosClient {
    */
   isEnabled(): boolean {
     return this.config.enabled ?? true;
+  }
+}
+
+async function submitViaSenderClient(
+  provider: string,
+  startTime: number,
+  transaction: Buffer,
+  submit: () => Promise<string>,
+  updateStats: (success: boolean, latencyMs: number, error?: string) => void,
+): Promise<TransactionResult> {
+  try {
+    const signature = await submit();
+    const latencyMs = Date.now() - startTime;
+    updateStats(true, latencyMs);
+    return {
+      success: true,
+      signature,
+      provider,
+      latencyMs,
+    };
+  } catch (error) {
+    const latencyMs = Date.now() - startTime;
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    updateStats(false, latencyMs, errorMsg);
+    return {
+      success: false,
+      provider,
+      latencyMs,
+      error: errorMsg,
+    };
+  }
+}
+
+class SenderBackedProviderClient extends SwqosClient {
+  async submitTransaction(transaction: Buffer, _tip = 0): Promise<TransactionResult> {
+    await this.rateLimitCheck();
+    const startTime = Date.now();
+    const sender = SenderClientFactory.createClient(
+      {
+        type: this.config.swqosType as any,
+        region: (this.config.region ?? SwqosRegion.Default) as any,
+        customUrl: this.config.url,
+        apiKey: this.config.apiKey,
+        mevProtection: this.config.mevProtection !== MevProtectionLevel.None,
+        transport: this.config.transport,
+        astralaneTransport: this.config.astralaneTransport,
+        swqosOnly: this.config.swqosOnly,
+      },
+      '',
+    );
+    return submitViaSenderClient(
+      this.config.swqosType,
+      startTime,
+      transaction,
+      () => sender.sendTransaction(TradeType.Buy, transaction, false),
+      this.updateStats.bind(this),
+    );
+  }
+
+  getProviderType(): SwqosType {
+    return this.config.swqosType;
   }
 }
 
@@ -743,53 +820,24 @@ export class FlashBlockClient extends SwqosClient {
  * BlockRazor SWQOS client - Block optimization
  */
 export class BlockRazorClient extends SwqosClient {
-  private apiUrl: string;
+  private endpoint: string;
 
   constructor(config: SwqosConfig) {
     super(config);
-    this.apiUrl = config.url || 'https://api.blockrazor.io';
+    this.endpoint = config.url || 'http://ny.solana.blockrazor.xyz:443/v2/sendTransaction';
   }
 
-  async submitTransaction(transaction: Buffer, tip = 0): Promise<TransactionResult> {
+  async submitTransaction(transaction: Buffer, _tip = 0): Promise<TransactionResult> {
     await this.rateLimitCheck();
     const startTime = Date.now();
-
-    try {
-      const encoded = transaction.toString('base64');
-      const payload = { transaction: encoded, tip };
-
-      const headers: Record<string, string> = {};
-      if (this.config.apiKey) {
-        headers['X-API-Key'] = this.config.apiKey;
-      }
-
-      const result = (await this.post(`${this.apiUrl}/api/v1/submit`, payload, headers)) as any;
-
-      if (result.error) {
-        throw new TradeError(500, result.error);
-      }
-
-      const latencyMs = Date.now() - startTime;
-      this.updateStats(true, latencyMs);
-
-      return {
-        success: true,
-        signature: result.signature,
-        provider: 'BlockRazor',
-        latencyMs,
-      };
-    } catch (error) {
-      const latencyMs = Date.now() - startTime;
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      this.updateStats(false, latencyMs, errorMsg);
-
-      return {
-        success: false,
-        provider: 'BlockRazor',
-        latencyMs,
-        error: errorMsg,
-      };
-    }
+    const client = new SenderBlockRazorClient('', this.endpoint, this.config.apiKey);
+    return submitViaSenderClient(
+      'BlockRazor',
+      startTime,
+      transaction,
+      () => client.sendTransaction(TradeType.Buy, transaction, false),
+      this.updateStats.bind(this),
+    );
   }
 
   getProviderType(): SwqosType {
@@ -801,53 +849,24 @@ export class BlockRazorClient extends SwqosClient {
  * Astralane SWQOS client - High-speed relay
  */
 export class AstralaneClient extends SwqosClient {
-  private apiUrl: string;
+  private endpoint: string;
 
   constructor(config: SwqosConfig) {
     super(config);
-    this.apiUrl = config.url || 'https://api.astralane.io';
+    this.endpoint = config.url || 'http://ny.gateway.astralane.io/irisb';
   }
 
-  async submitTransaction(transaction: Buffer, tip = 0): Promise<TransactionResult> {
+  async submitTransaction(transaction: Buffer, _tip = 0): Promise<TransactionResult> {
     await this.rateLimitCheck();
     const startTime = Date.now();
-
-    try {
-      const encoded = transaction.toString('base64');
-      const payload = { transaction: encoded, tip };
-
-      const headers: Record<string, string> = {};
-      if (this.config.apiKey) {
-        headers['Authorization'] = `Bearer ${this.config.apiKey}`;
-      }
-
-      const result = (await this.post(`${this.apiUrl}/api/v1/submit`, payload, headers)) as any;
-
-      if (result.error) {
-        throw new TradeError(500, result.error);
-      }
-
-      const latencyMs = Date.now() - startTime;
-      this.updateStats(true, latencyMs);
-
-      return {
-        success: true,
-        signature: result.signature,
-        provider: 'Astralane',
-        latencyMs,
-      };
-    } catch (error) {
-      const latencyMs = Date.now() - startTime;
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      this.updateStats(false, latencyMs, errorMsg);
-
-      return {
-        success: false,
-        provider: 'Astralane',
-        latencyMs,
-        error: errorMsg,
-      };
-    }
+    const client = new SenderAstralaneClient('', this.endpoint, this.config.apiKey);
+    return submitViaSenderClient(
+      'Astralane',
+      startTime,
+      transaction,
+      () => client.sendTransaction(TradeType.Buy, transaction, false),
+      this.updateStats.bind(this),
+    );
   }
 
   getProviderType(): SwqosType {
@@ -1021,49 +1040,24 @@ export class SoyasClient extends SwqosClient {
  * Speedlanding SWQOS client - Fast inclusion
  */
 export class SpeedlandingClient extends SwqosClient {
-  private apiUrl: string;
+  private endpoint: string;
 
   constructor(config: SwqosConfig) {
     super(config);
-    this.apiUrl = config.url || 'https://api.speedlanding.io';
+    this.endpoint = config.url || 'nyc.speedlanding.trade:17778';
   }
 
-  async submitTransaction(transaction: Buffer, tip = 0): Promise<TransactionResult> {
+  async submitTransaction(transaction: Buffer, _tip = 0): Promise<TransactionResult> {
     await this.rateLimitCheck();
     const startTime = Date.now();
-
-    try {
-      const encoded = transaction.toString('base64');
-      const payload = { transaction: encoded, tip };
-
-      const headers: Record<string, string> = {};
-      if (this.config.apiKey) {
-        headers['Authorization'] = `Bearer ${this.config.apiKey}`;
-      }
-
-      const result = (await this.post(`${this.apiUrl}/api/v1/submit`, payload, headers)) as any;
-
-      const latencyMs = Date.now() - startTime;
-      this.updateStats(true, latencyMs);
-
-      return {
-        success: true,
-        signature: result.signature,
-        provider: 'Speedlanding',
-        latencyMs,
-      };
-    } catch (error) {
-      const latencyMs = Date.now() - startTime;
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      this.updateStats(false, latencyMs, errorMsg);
-
-      return {
-        success: false,
-        provider: 'Speedlanding',
-        latencyMs,
-        error: errorMsg,
-      };
-    }
+    const client = new SenderSpeedlandingClient('', this.endpoint, this.config.apiKey);
+    return submitViaSenderClient(
+      'Speedlanding',
+      startTime,
+      transaction,
+      () => client.sendTransaction(TradeType.Buy, transaction, false),
+      this.updateStats.bind(this),
+    );
   }
 
   getProviderType(): SwqosType {
@@ -1075,26 +1069,24 @@ export class SpeedlandingClient extends SwqosClient {
  * Solami SWQOS client - Rust v4.0.21 parity provider
  */
 export class SolamiClient extends SwqosClient {
-  private apiUrl: string;
+  private endpoint: string;
 
   constructor(config: SwqosConfig) {
     super(config);
-    this.apiUrl = config.url || 'beam.solami.dev:11000';
+    this.endpoint = config.url || 'beam.solami.dev:11000';
   }
 
-  async submitTransaction(transaction: Buffer, tip = 0): Promise<TransactionResult> {
+  async submitTransaction(transaction: Buffer, _tip = 0): Promise<TransactionResult> {
     await this.rateLimitCheck();
     const startTime = Date.now();
-
-    const latencyMs = Date.now() - startTime;
-    const error = 'Solami live submit uses swqos/clients SolamiClient QUIC path, not HTTP provider API';
-    this.updateStats(false, latencyMs, error);
-    return {
-      success: false,
-      provider: 'Solami',
-      latencyMs,
-      error,
-    };
+    const client = new SenderSolamiClient('', this.endpoint, this.config.apiKey);
+    return submitViaSenderClient(
+      'Solami',
+      startTime,
+      transaction,
+      () => client.sendTransaction(TradeType.Buy, transaction, false),
+      this.updateStats.bind(this),
+    );
   }
 
   getProviderType(): SwqosType {
@@ -1513,19 +1505,19 @@ export class DefaultClient extends SwqosClient {
  */
 export class SwqosClientFactory {
   private static readonly CLIENT_MAP: Partial<Record<SwqosType, new (config: SwqosConfig) => SwqosClient>> = {
-    [SwqosType.Jito]: JitoClient,
-    [SwqosType.Bloxroute]: BloxrouteClient,
-    [SwqosType.ZeroSlot]: ZeroSlotClient,
-    [SwqosType.Temporal]: TemporalClient,
-    [SwqosType.Node1]: Node1Client,
-    [SwqosType.FlashBlock]: FlashBlockClient,
+    [SwqosType.Jito]: SenderBackedProviderClient,
+    [SwqosType.Bloxroute]: SenderBackedProviderClient,
+    [SwqosType.ZeroSlot]: SenderBackedProviderClient,
+    [SwqosType.Temporal]: SenderBackedProviderClient,
+    [SwqosType.Node1]: SenderBackedProviderClient,
+    [SwqosType.FlashBlock]: SenderBackedProviderClient,
     [SwqosType.BlockRazor]: BlockRazorClient,
     [SwqosType.Astralane]: AstralaneClient,
-    [SwqosType.Stellium]: StelliumClient,
-    [SwqosType.Lightspeed]: LightspeedClient,
-    [SwqosType.Soyas]: SoyasClient,
+    [SwqosType.Stellium]: SenderBackedProviderClient,
+    [SwqosType.Lightspeed]: SenderBackedProviderClient,
+    [SwqosType.Soyas]: SenderBackedProviderClient,
     [SwqosType.Speedlanding]: SpeedlandingClient,
-    [SwqosType.Helius]: HeliusClient,
+    [SwqosType.Helius]: SenderBackedProviderClient,
     [SwqosType.Solami]: SolamiClient,
     [SwqosType.Default]: DefaultClient as any,
   };

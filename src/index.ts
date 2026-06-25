@@ -2488,12 +2488,10 @@ export class TradingClient {
       }
     }
 
-    if (
-      swqosList.length > 0 &&
-      tradeType === TradeType.Buy &&
-      swqosTasks.length > 1 &&
-      !execCtx?.durableNonce
-    ) {
+    const nonDefaultSwqosTaskCount = swqosTasks.filter(
+      (task) => task.cfg.type !== SwqosType.Default
+    ).length;
+    if (nonDefaultSwqosTaskCount > 1 && !execCtx?.durableNonce) {
       return {
         success: false,
         signatures: [],
@@ -2693,7 +2691,17 @@ export class TradingClient {
           signatures: success ? signatures : [],
           error: success
             ? undefined
-            : new TradeError(100, 'All SWQOS submissions failed'),
+            : new TradeError(
+                100,
+                `All SWQOS submissions failed${
+                  results.some((v) => !v.ok)
+                    ? `: ${results
+                        .filter((v) => !v.ok)
+                        .map((v) => `${v.task.cfg.type}: ${v.err instanceof Error ? v.err.message : String(v.err)}`)
+                        .join('; ')}`
+                    : ''
+                }`
+              ),
           timings,
         };
       }

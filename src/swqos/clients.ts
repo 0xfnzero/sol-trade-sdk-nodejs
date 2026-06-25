@@ -24,6 +24,56 @@ export function randomChoice<T>(arr: T[]): T {
   return item;
 }
 
+function appendQuery(url: string, params: Record<string, string | boolean | undefined>): string {
+  const [base, query = ''] = url.split('?');
+  const search = new URLSearchParams(query);
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined) {
+      search.set(key, String(value));
+    }
+  }
+  const qs = search.toString();
+  return qs ? `${base}?${qs}` : base!;
+}
+
+async function parseBodyAsJsonOrText(response: Response): Promise<unknown> {
+  const text = await response.text();
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+}
+
+function extractSubmitSignature(
+  result: unknown,
+  fallbackSignature?: string,
+  allowFallback = false,
+): string {
+  if (typeof result === 'string') {
+    const signature = result.trim();
+    if (signature) return signature;
+    if (allowFallback && fallbackSignature) return fallbackSignature;
+    throw new TradeError(500, 'missing transaction signature in submit response');
+  }
+  if (Array.isArray(result) && result.length > 0) {
+    return extractSubmitSignature(result[0], fallbackSignature, allowFallback);
+  }
+  if (result && typeof result === 'object') {
+    const obj = result as Record<string, any>;
+    if (obj.error) {
+      throw new TradeError(obj.error.code || 500, obj.error.message || String(obj.error));
+    }
+    if (typeof obj.signature === 'string' && obj.signature) return obj.signature;
+    if (typeof obj.result === 'string' && obj.result) return obj.result;
+    if (obj.result) return extractSubmitSignature(obj.result, fallbackSignature, allowFallback);
+    if (obj.success === true && fallbackSignature) return fallbackSignature;
+  }
+  if (allowFallback && fallbackSignature) return fallbackSignature;
+  throw new TradeError(500, 'missing transaction signature in submit response');
+}
+
 // ===== Constants =====
 
 export const MIN_TIP_JITO = 0.00001;
@@ -476,14 +526,19 @@ abstract class BaseClient implements SwqosClient {
       throw new TradeError(response.status, `HTTP error: ${response.statusText}`);
     }
 
-    return response.json();
+    return parseBodyAsJsonOrText(response);
   }
 
-  protected async postRaw(url: string, body: string, headers: Record<string, string> = {}): Promise<unknown> {
+  protected async postRaw(
+    url: string,
+    body: string | Buffer | Uint8Array,
+    headers: Record<string, string> = {},
+    contentType = 'text/plain',
+  ): Promise<unknown> {
     const response = await fetch(url, {
       method: 'POST',
       headers: {
-        'Content-Type': 'text/plain',
+        'Content-Type': contentType,
         ...headers,
       },
       body,
@@ -493,7 +548,7 @@ abstract class BaseClient implements SwqosClient {
       throw new TradeError(response.status, `HTTP error: ${response.statusText}`);
     }
 
-    return response.json();
+    return parseBodyAsJsonOrText(response);
   }
 }
 
@@ -540,7 +595,7 @@ export class JitoClient extends BaseClient {
       throw new TradeError(result.error.code || 500, result.error.message);
     }
 
-    return result.result;
+    return extractSubmitSignature(result);
   }
 
   async sendTransactions(
@@ -577,7 +632,7 @@ export class JitoClient extends BaseClient {
     }
 
     // Bundle returns a single bundle ID, wrap in array for interface compatibility
-    return [result.result];
+    return [extractSubmitSignature(result)];
   }
 
   getTipAccount(): string {
@@ -634,7 +689,7 @@ export class BloxrouteClient extends BaseClient {
       throw new TradeError(500, result.reason);
     }
 
-    return result.signature || result.result || '';
+    return extractSubmitSignature(result);
   }
 
   getTipAccount(): string {
@@ -689,7 +744,7 @@ export class ZeroSlotClient extends BaseClient {
       throw new TradeError(result.error.code || 500, result.error.message || String(result.error));
     }
 
-    return result.result;
+    return extractSubmitSignature(result);
   }
 
   getTipAccount(): string {
@@ -744,7 +799,7 @@ export class TemporalClient extends BaseClient {
       throw new TradeError(result.error.code || 500, result.error.message || String(result.error));
     }
 
-    return result.result;
+    return extractSubmitSignature(result);
   }
 
   getTipAccount(): string {
@@ -798,10 +853,10 @@ export class FlashBlockClient extends BaseClient {
 
     // Batch submit may return array of results
     if (Array.isArray(result) && result.length > 0) {
-      return result[0].signature || result[0].result || '';
+      return extractSubmitSignature(result[0], signatureFromSerializedTransaction(transaction), true);
     }
 
-    return result.signature || result.result || '';
+    return extractSubmitSignature(result, signatureFromSerializedTransaction(transaction), true);
   }
 
   getTipAccount(): string {
@@ -852,11 +907,10 @@ export class HeliusClient extends BaseClient {
       ],
     };
 
-    // Auth in URL param ?api-key=...
-    let url = this.endpoint;
-    if (this.apiKey) {
-      url = `${this.endpoint}?api-key=${this.apiKey}`;
-    }
+    const url = appendQuery(this.endpoint, {
+      'api-key': this.apiKey,
+      swqos_only: this.swqosOnly ? true : undefined,
+    });
 
     const result = (await this.post(url, payload)) as any;
 
@@ -864,7 +918,7 @@ export class HeliusClient extends BaseClient {
       throw new TradeError(result.error.code || 500, result.error.message);
     }
 
-    return result.result;
+    return extractSubmitSignature(result);
   }
 
   getTipAccount(): string {
@@ -920,7 +974,7 @@ export class Node1Client extends BaseClient {
       throw new TradeError(result.error.code || 500, result.error.message || String(result.error));
     }
 
-    return result.result;
+    return extractSubmitSignature(result);
   }
 
   getTipAccount(): string {
@@ -1013,14 +1067,10 @@ export class BlockRazorClient extends BaseClient {
       url = `${this.endpoint}?auth=${this.authToken}&mode=${mode}`;
     }
 
-    // Body is raw base64 string, Content-Type: text/plain
+    // Body is raw base64 string, Content-Type: text/plain. BlockRazor HTTP
+    // commonly returns the signature as plain text rather than JSON.
     const result = (await this.postRaw(url, encoded)) as any;
-
-    if (result.error) {
-      throw new TradeError(result.error.code || 500, result.error.message || String(result.error));
-    }
-
-    return result.result || result.signature || '';
+    return extractSubmitSignature(result, signatureFromSerializedTransaction(transaction), true);
   }
 
   getTipAccount(): string {
@@ -1054,28 +1104,18 @@ export class AstralaneClient extends BaseClient {
     transaction: Buffer,
     waitConfirmation: boolean
   ): Promise<string> {
-    const encoded = transaction.toString('base64');
+    const query: Record<string, string | undefined> = { method: 'sendTransaction' };
+    if (this.authToken) query['api-key'] = this.authToken;
+    const url = appendQuery(this.endpoint, query);
 
-    const payload = {
-      jsonrpc: '2.0',
-      id: 1,
-      method: 'sendTransaction',
-      params: [encoded, { encoding: 'base64' }],
-    };
+    const result = await this.postRaw(
+      url,
+      transaction,
+      {},
+      'application/octet-stream',
+    );
 
-    // Auth in URL params ?api-key=...&method=sendTransaction
-    let url = `${this.endpoint}?method=sendTransaction`;
-    if (this.authToken) {
-      url = `${this.endpoint}?api-key=${this.authToken}&method=sendTransaction`;
-    }
-
-    const result = (await this.post(url, payload)) as any;
-
-    if (result.error) {
-      throw new TradeError(result.error.code || 500, result.error.message || String(result.error));
-    }
-
-    return result.result || result.signature || '';
+    return extractSubmitSignature(result, signatureFromSerializedTransaction(transaction), true);
   }
 
   getTipAccount(): string {
@@ -1186,7 +1226,7 @@ export class StelliumClient extends BaseClient {
       throw new TradeError(result.error.code || 500, result.error.message || String(result.error));
     }
 
-    return result.result || result.signature || '';
+    return extractSubmitSignature(result);
   }
 
   getTipAccount(): string {
@@ -1241,7 +1281,7 @@ export class LightspeedClient extends BaseClient {
       throw new TradeError(result.error.code || 500, result.error.message || String(result.error));
     }
 
-    return result.result || result.signature || '';
+    return extractSubmitSignature(result);
   }
 
   getTipAccount(): string {
@@ -1302,7 +1342,7 @@ export class NextBlockClient extends BaseClient {
       throw new TradeError(500, result.reason);
     }
 
-    return result.signature || result.result || '';
+    return extractSubmitSignature(result);
   }
 
   getTipAccount(): string {
@@ -1348,7 +1388,7 @@ export class DefaultClient extends BaseClient {
       throw new TradeError(result.error.code || 500, result.error.message);
     }
 
-    return result.result;
+    return extractSubmitSignature(result);
   }
 
   getTipAccount(): string {
@@ -1420,7 +1460,6 @@ async function sendViaQUIC(
       tlsVersion: 'tlsv13',
       serverName,
     },
-    logger: undefined,
   });
 
   try {
@@ -1638,7 +1677,6 @@ async function sendNode1ViaQUIC(
       tlsVersion: 'tlsv13',
       serverName: host,
     },
-    logger: undefined,
   });
 
   try {
@@ -1728,8 +1766,7 @@ export class SoyasClient implements SwqosClient {
  *
  * Transport: QUIC with self-signed Ed25519 cert, ALPN "solana-tpu".
  * Endpoint:  host:port (e.g. nyc.speedlanding.trade:17778)
- * SNI:       derived from hostname; falls back to "speed-landing" for bare IPs
- *            (matches Rust SDK behavior).
+ * SNI:       fixed "speed-landing" to match Rust SDK behavior.
  * Requires:  npm install @matrixai/quic selfsigned
  */
 export class SpeedlandingClient implements SwqosClient {
@@ -1747,7 +1784,7 @@ export class SpeedlandingClient implements SwqosClient {
     const lastColon = endpoint.lastIndexOf(':');
     this.host = lastColon >= 0 ? endpoint.slice(0, lastColon) : endpoint;
     this.port = lastColon >= 0 ? parseInt(endpoint.slice(lastColon + 1), 10) : 17778;
-    // Use hostname as SNI; fall back to "speed-landing" for bare IP addresses
+    // Kept for compatibility with existing private fields; submit uses the Rust fixed SNI.
     this.serverName = /^\d+\.\d+\.\d+\.\d+$/.test(this.host) ? 'speed-landing' : this.host;
   }
 
@@ -1756,7 +1793,7 @@ export class SpeedlandingClient implements SwqosClient {
     transaction: Buffer,
     _waitConfirmation: boolean,
   ): Promise<string> {
-    await sendViaQUIC(this.host, this.port, this.serverName, new Uint8Array(transaction));
+    await sendViaQUIC(this.host, this.port, 'speed-landing', new Uint8Array(transaction));
     return signatureFromSerializedTransaction(transaction);
   }
 

@@ -2,7 +2,7 @@
  * Tests for Sol Trade SDK - TypeScript
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Keypair, PublicKey, TransactionInstruction, VersionedTransaction } from '@solana/web3.js';
 import {
   AccountPolicy,
@@ -50,8 +50,11 @@ import {
 } from '../index';
 import {
   ASTRALANE_ENDPOINTS,
+  AstralaneClient as SenderAstralaneClient,
   ASTRALANE_QUIC_HOSTS,
   BLOXROUTE_ENDPOINTS,
+  BloxrouteClient as SenderBloxrouteClient,
+  BlockRazorClient as SenderBlockRazorClient,
   BLOCK_RAZOR_ENDPOINTS,
   ClientFactory as SenderClientFactory,
   MIN_TIP_DEFAULT,
@@ -63,6 +66,8 @@ import {
   STELLIUM_ENDPOINTS,
 } from '../swqos/clients';
 import {
+  AstralaneClient as ProviderAstralaneClient,
+  BlockRazorClient as ProviderBlockRazorClient,
   SolamiClient as ProviderSolamiClient,
   SwqosClientFactory,
   SwqosType as ProviderSwqosType,
@@ -83,6 +88,33 @@ import {
   getBuyTokenAmountFromSolAmount,
   getSellSolAmountFromTokenAmount,
 } from '../calc';
+
+function dummySignedTransactionBytes(): Buffer {
+  return Buffer.concat([Buffer.from([1]), Buffer.alloc(64, 7), Buffer.alloc(8, 9)]);
+}
+
+function fakeRuntimeSwqosClient(signature: string, delayMs = 0) {
+  return {
+    sendTransaction: vi.fn(async () => {
+      if (delayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+      return signature;
+    }),
+    getTipAccount: vi.fn(() => ''),
+    minTipSol: vi.fn(() => 0),
+  };
+}
+
+function fakeFailingRuntimeSwqosClient(message: string) {
+  return {
+    sendTransaction: vi.fn(async () => {
+      throw new Error(message);
+    }),
+    getTipAccount: vi.fn(() => ''),
+    minTipSol: vi.fn(() => 0),
+  };
+}
 
 describe('GasFeeStrategy', () => {
   let strategy: GasFeeStrategy;
@@ -543,7 +575,98 @@ describe('Solami SWQOS parity', () => {
     });
     const result = await provider.submitTransaction(Buffer.from([1, ...new Array(64).fill(0)]));
     expect(result.success).toBe(false);
-    expect(result.error).toContain('QUIC path');
+    expect(result.error).toContain('Solami api token is required');
+  });
+
+  it('provider BlockRazor delegates to Rust-parity sender request shape', async () => {
+    const signature = 'yfK1R3WTSB1111111111111111111111111111111111111111111111111111';
+    const tx = dummySignedTransactionBytes();
+    const fetchMock = vi.fn(async (url: string, init: RequestInit) => {
+      expect(url).toContain('/v2/sendTransaction');
+      expect(url).not.toContain('/api/v1/submit');
+      expect(init.headers).toMatchObject({ 'Content-Type': 'text/plain' });
+      expect(init.body).toBe(tx.toString('base64'));
+      return new Response(signature, { status: 200 });
+    });
+    globalThis.fetch = fetchMock as any;
+
+    const provider = new ProviderBlockRazorClient({
+      swqosType: ProviderSwqosType.BlockRazor,
+      apiKey: 'token',
+      url: 'http://blockrazor/v2/sendTransaction',
+    });
+
+    const result = await provider.submitTransaction(tx);
+
+    expect(result.success).toBe(true);
+    expect(result.signature).toBe(signature);
+  });
+
+  it('provider Astralane delegates to Rust-parity binary sender request shape', async () => {
+    const tx = dummySignedTransactionBytes();
+    const fetchMock = vi.fn(async (url: string, init: RequestInit) => {
+      const parsed = new URL(url);
+      expect(`${parsed.origin}${parsed.pathname}`).toBe('http://astralane/irisb');
+      expect(parsed.searchParams.get('api-key')).toBe('token');
+      expect(parsed.searchParams.get('method')).toBe('sendTransaction');
+      expect(init.headers).toMatchObject({ 'Content-Type': 'application/octet-stream' });
+      expect(Buffer.from(init.body as any)).toEqual(tx);
+      return new Response('', { status: 200 });
+    });
+    globalThis.fetch = fetchMock as any;
+
+    const provider = new ProviderAstralaneClient({
+      swqosType: ProviderSwqosType.Astralane,
+      apiKey: 'token',
+      url: 'http://astralane/irisb',
+    });
+
+    const result = await provider.submitTransaction(tx);
+
+    expect(result.success).toBe(true);
+    expect(result.signature).toBeTruthy();
+  });
+
+  it('provider factory Bloxroute delegates through sender factory with region endpoints', async () => {
+    const signature = 'yfK1R3WTSB1111111111111111111111111111111111111111111111111111';
+    const fetchMock = vi.fn(async (url: string, init: RequestInit) => {
+      expect(url).toBe(`${BLOXROUTE_ENDPOINTS[SwqosRegion.Singapore]}/api/v2/submit`);
+      expect(url).not.toContain('/api/v1/submit');
+      expect(init.headers).toMatchObject({ Authorization: 'token' });
+      return new Response(JSON.stringify({ signature }), { status: 200 });
+    });
+    globalThis.fetch = fetchMock as any;
+
+    const provider = SwqosClientFactory.createClient({
+      swqosType: ProviderSwqosType.Bloxroute,
+      region: SwqosRegion.Singapore as any,
+      apiKey: 'token',
+    });
+
+    const result = await provider.submitTransaction(dummySignedTransactionBytes());
+
+    expect(result.success).toBe(true);
+    expect(result.signature).toBe(signature);
+  });
+
+  it('provider factory preserves Helius swqosOnly through sender factory', async () => {
+    const signature = 'yfK1R3WTSB1111111111111111111111111111111111111111111111111111';
+    const fetchMock = vi.fn(async (url: string) => {
+      expect(url).toContain('swqos_only=true');
+      return new Response(JSON.stringify({ result: signature }), { status: 200 });
+    });
+    globalThis.fetch = fetchMock as any;
+
+    const provider = SwqosClientFactory.createClient({
+      swqosType: ProviderSwqosType.Helius,
+      apiKey: 'token',
+      swqosOnly: true,
+    });
+
+    const result = await provider.submitTransaction(dummySignedTransactionBytes());
+
+    expect(result.success).toBe(true);
+    expect(result.signature).toBe(signature);
   });
 
   it('sender factory rejects legacy non-Rust SWQOS providers', () => {
@@ -821,6 +944,115 @@ describe('TradingClient execution parity', () => {
     expect(result.error?.message).toContain('transaction too large');
     expect(client.connection.sendRawTransaction).not.toHaveBeenCalled();
   });
+
+  it('requires durable nonce for multiple non-default SWQOS tasks on sell', async () => {
+    const payer = Keypair.generate();
+    const client = new (TradingClient as any)(
+      payer,
+      TradeConfigBuilder.create('https://rpc.example')
+        .swqosConfigs([
+          { type: SwqosType.Jito, region: SwqosRegion.Frankfurt, apiKey: 'jito' },
+          { type: SwqosType.Bloxroute, region: SwqosRegion.Frankfurt, apiKey: 'blox' },
+        ])
+        .build()
+    );
+    client.getSwqosClient = vi.fn((_: unknown, cfg: { type: SwqosType }) =>
+      fakeRuntimeSwqosClient(`sig-${cfg.type}`)
+    );
+
+    const result = await client.executeTransaction(
+      [new TransactionInstruction({ programId: PublicKey.default, keys: [], data: Buffer.from([1]) })],
+      'p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV',
+      undefined,
+      false,
+      false,
+      {
+        tradeType: TradeType.Sell,
+        dexType: DexType.PumpFun,
+      }
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.message).toContain('durable_nonce');
+  });
+
+  it('allows one non-default SWQOS plus default RPC fallback without durable nonce', async () => {
+    const payer = Keypair.generate();
+    const client = new (TradingClient as any)(
+      payer,
+      TradeConfigBuilder.create('https://rpc.example')
+        .swqosConfigs([
+          { type: SwqosType.Jito, region: SwqosRegion.Frankfurt, apiKey: 'jito' },
+        ])
+        .build()
+    );
+    client.getSwqosClient = vi.fn((_: unknown, cfg: { type: SwqosType }) =>
+      fakeRuntimeSwqosClient(cfg.type === SwqosType.Default ? 'sig-rpc' : 'sig-swqos', cfg.type === SwqosType.Default ? 10 : 0)
+    );
+
+    const first = await client.executeTransaction(
+      [new TransactionInstruction({ programId: PublicKey.default, keys: [], data: Buffer.from([1]) })],
+      'p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV',
+      undefined,
+      false,
+      false,
+      {
+        tradeType: TradeType.Buy,
+        dexType: DexType.PumpFun,
+      }
+    );
+
+    expect(first.success).toBe(true);
+    expect(first.signatures).toEqual(['sig-swqos']);
+
+    const all = await client.executeTransaction(
+      [new TransactionInstruction({ programId: PublicKey.default, keys: [], data: Buffer.from([1]) })],
+      'p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV',
+      undefined,
+      false,
+      false,
+      {
+        tradeType: TradeType.Sell,
+        dexType: DexType.PumpFun,
+        waitForAllSubmits: true,
+      }
+    );
+
+    expect(all.success).toBe(true);
+    expect(all.signatures).toEqual(['sig-swqos', 'sig-rpc']);
+  });
+
+  it('returns provider error details when every SWQOS submit fails', async () => {
+    const payer = Keypair.generate();
+    const client = new (TradingClient as any)(
+      payer,
+      TradeConfigBuilder.create('https://rpc.example')
+        .swqosConfigs([
+          { type: SwqosType.Jito, region: SwqosRegion.Frankfurt, apiKey: 'jito' },
+        ])
+        .build()
+    );
+    client.getSwqosClient = vi.fn((_: unknown, cfg: { type: SwqosType }) =>
+      fakeFailingRuntimeSwqosClient(cfg.type === SwqosType.Default ? 'rpc rejected' : 'jito rejected')
+    );
+
+    const result = await client.executeTransaction(
+      [new TransactionInstruction({ programId: PublicKey.default, keys: [], data: Buffer.from([1]) })],
+      'p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV',
+      undefined,
+      false,
+      false,
+      {
+        tradeType: TradeType.Buy,
+        dexType: DexType.PumpFun,
+        waitForAllSubmits: true,
+      }
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.message).toContain('Jito: jito rejected');
+    expect(result.error?.message).toContain('Default: rpc rejected');
+  });
 });
 
 describe('ExecutionPath (Rust parity)', () => {
@@ -931,5 +1163,57 @@ describe('MiddlewareManager (Rust parity)', () => {
     ];
     mgr.applyMiddlewaresProcessFullInstructions(wired, 'PumpFun', true);
     expect(rec.fullCalls).toEqual([{ len: 2, protocol: 'PumpFun', isBuy: true }]);
+  });
+});
+
+describe('Primary SWQOS clients (Rust parity)', () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    vi.restoreAllMocks();
+  });
+
+  it('BlockRazor HTTP accepts plain-text signature responses', async () => {
+    const signature = 'yfK1R3WTSB1111111111111111111111111111111111111111111111111111';
+    const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
+      expect(init.headers).toMatchObject({ 'Content-Type': 'text/plain' });
+      expect(init.body).toBe(dummySignedTransactionBytes().toString('base64'));
+      return new Response(signature, { status: 200 });
+    });
+    globalThis.fetch = fetchMock as any;
+
+    const client = new SenderBlockRazorClient('http://rpc', 'http://blockrazor/v2/sendTransaction', 'token');
+
+    await expect(client.sendTransaction(TradeType.Buy, dummySignedTransactionBytes(), false))
+      .resolves.toBe(signature);
+  });
+
+  it('Astralane binary HTTP sends raw transaction bytes instead of JSON-RPC', async () => {
+    const tx = dummySignedTransactionBytes();
+    const fetchMock = vi.fn(async (url: string, init: RequestInit) => {
+      const parsed = new URL(url);
+      expect(`${parsed.origin}${parsed.pathname}`).toBe('http://astralane/irisb');
+      expect(parsed.searchParams.get('api-key')).toBe('token');
+      expect(parsed.searchParams.get('method')).toBe('sendTransaction');
+      expect(init.headers).toMatchObject({ 'Content-Type': 'application/octet-stream' });
+      expect(Buffer.from(init.body as any)).toEqual(tx);
+      return new Response('', { status: 200 });
+    });
+    globalThis.fetch = fetchMock as any;
+
+    const client = new SenderAstralaneClient('http://rpc', 'http://astralane/irisb', 'token');
+    const sig = await client.sendTransaction(TradeType.Buy, tx, false);
+
+    expect(sig.length).toBeGreaterThan(0);
+  });
+
+  it('Bloxroute HTTP success without signature is an error', async () => {
+    globalThis.fetch = vi.fn(async () => new Response('{}', { status: 200 })) as any;
+
+    const client = new SenderBloxrouteClient('http://rpc', 'http://bloxroute', 'token');
+
+    await expect(client.sendTransaction(TradeType.Buy, dummySignedTransactionBytes(), false))
+      .rejects.toThrow(/missing transaction signature/);
   });
 });
