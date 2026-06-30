@@ -223,6 +223,28 @@ export const PUMPSWAP_CONSTANTS = {
   COIN_CREATOR_FEE_BASIS_POINTS: BigInt(5), // 0.05% (was 10)
 };
 
+export interface PumpSwapFeeBasisPoints {
+  lpFeeBasisPoints: bigint;
+  protocolFeeBasisPoints: bigint;
+  coinCreatorFeeBasisPoints: bigint;
+}
+
+export function pumpSwapFeeBasisPoints(
+  lpFeeBasisPoints: bigint,
+  protocolFeeBasisPoints: bigint,
+  coinCreatorFeeBasisPoints: bigint
+): PumpSwapFeeBasisPoints {
+  return { lpFeeBasisPoints, protocolFeeBasisPoints, coinCreatorFeeBasisPoints };
+}
+
+export function legacyPumpSwapFeeBasisPoints(hasCoinCreator: boolean): PumpSwapFeeBasisPoints {
+  return pumpSwapFeeBasisPoints(
+    PUMPSWAP_CONSTANTS.LP_FEE_BASIS_POINTS,
+    PUMPSWAP_CONSTANTS.PROTOCOL_FEE_BASIS_POINTS,
+    hasCoinCreator ? PUMPSWAP_CONSTANTS.COIN_CREATOR_FEE_BASIS_POINTS : BigInt(0)
+  );
+}
+
 export interface BuyBaseInputResult {
   internalQuoteAmount: bigint;
   uiQuote: bigint;
@@ -257,6 +279,22 @@ export function buyBaseInputInternal(
   quoteReserve: bigint,
   hasCoinCreator: boolean
 ): BuyBaseInputResult {
+  return buyBaseInputInternalWithFees(
+    base,
+    slippageBasisPoints,
+    baseReserve,
+    quoteReserve,
+    legacyPumpSwapFeeBasisPoints(hasCoinCreator)
+  );
+}
+
+export function buyBaseInputInternalWithFees(
+  base: bigint,
+  slippageBasisPoints: bigint,
+  baseReserve: bigint,
+  quoteReserve: bigint,
+  feeBasisPoints: PumpSwapFeeBasisPoints
+): BuyBaseInputResult {
   if (baseReserve === BigInt(0) || quoteReserve === BigInt(0)) {
     throw new Error('Invalid input: reserves cannot be zero');
   }
@@ -273,12 +311,9 @@ export function buyBaseInputInternal(
 
   const quoteAmountIn = ceilDiv(numerator, denominator);
 
-  const lpFee = computeFee(quoteAmountIn, PUMPSWAP_CONSTANTS.LP_FEE_BASIS_POINTS);
-  const protocolFee = computeFee(quoteAmountIn, PUMPSWAP_CONSTANTS.PROTOCOL_FEE_BASIS_POINTS);
-  let coinCreatorFee = BigInt(0);
-  if (hasCoinCreator) {
-    coinCreatorFee = computeFee(quoteAmountIn, PUMPSWAP_CONSTANTS.COIN_CREATOR_FEE_BASIS_POINTS);
-  }
+  const lpFee = computeFee(quoteAmountIn, feeBasisPoints.lpFeeBasisPoints);
+  const protocolFee = computeFee(quoteAmountIn, feeBasisPoints.protocolFeeBasisPoints);
+  const coinCreatorFee = computeFee(quoteAmountIn, feeBasisPoints.coinCreatorFeeBasisPoints);
 
   const totalQuote = quoteAmountIn + lpFee + protocolFee + coinCreatorFee;
   const maxQuote = calculateWithSlippageBuy(totalQuote, slippageBasisPoints);
@@ -300,22 +335,47 @@ export function buyQuoteInputInternal(
   quoteReserve: bigint,
   hasCoinCreator: boolean
 ): BuyQuoteInputResult {
+  return buyQuoteInputInternalWithFees(
+    quote,
+    slippageBasisPoints,
+    baseReserve,
+    quoteReserve,
+    legacyPumpSwapFeeBasisPoints(hasCoinCreator)
+  );
+}
+
+export function buyQuoteInputInternalWithFees(
+  quote: bigint,
+  slippageBasisPoints: bigint,
+  baseReserve: bigint,
+  quoteReserve: bigint,
+  feeBasisPoints: PumpSwapFeeBasisPoints
+): BuyQuoteInputResult {
   if (baseReserve === BigInt(0) || quoteReserve === BigInt(0)) {
     throw new Error('Invalid input: reserves cannot be zero');
   }
 
-  let totalFeeBps =
-    PUMPSWAP_CONSTANTS.LP_FEE_BASIS_POINTS +
-    PUMPSWAP_CONSTANTS.PROTOCOL_FEE_BASIS_POINTS;
-  if (hasCoinCreator) {
-    totalFeeBps += PUMPSWAP_CONSTANTS.COIN_CREATOR_FEE_BASIS_POINTS;
-  }
+  const totalFeeBps =
+    feeBasisPoints.lpFeeBasisPoints +
+    feeBasisPoints.protocolFeeBasisPoints +
+    feeBasisPoints.coinCreatorFeeBasisPoints;
   const denominator = BigInt(10000) + totalFeeBps;
 
-  const effectiveQuote = (quote * BigInt(10000)) / denominator;
+  let effectiveQuote = (quote * BigInt(10000)) / denominator;
+  const lpFee = computeFee(effectiveQuote, feeBasisPoints.lpFeeBasisPoints);
+  const protocolFee = computeFee(effectiveQuote, feeBasisPoints.protocolFeeBasisPoints);
+  const coinCreatorFee = computeFee(effectiveQuote, feeBasisPoints.coinCreatorFeeBasisPoints);
+  const totalWithFees = effectiveQuote + lpFee + protocolFee + coinCreatorFee;
+  if (totalWithFees > quote) {
+    effectiveQuote -= totalWithFees - quote;
+    if (effectiveQuote < BigInt(0)) {
+      effectiveQuote = BigInt(0);
+    }
+  }
+  const inputAmount = effectiveQuote > BigInt(0) ? effectiveQuote - BigInt(1) : BigInt(0);
 
-  const numerator = baseReserve * effectiveQuote;
-  const denominatorEffective = quoteReserve + effectiveQuote;
+  const numerator = baseReserve * inputAmount;
+  const denominatorEffective = quoteReserve + inputAmount;
 
   if (denominatorEffective === BigInt(0)) {
     throw new Error('Pool would be depleted');
@@ -341,6 +401,22 @@ export function sellBaseInputInternal(
   quoteReserve: bigint,
   hasCoinCreator: boolean
 ): SellBaseInputResult {
+  return sellBaseInputInternalWithFees(
+    base,
+    slippageBasisPoints,
+    baseReserve,
+    quoteReserve,
+    legacyPumpSwapFeeBasisPoints(hasCoinCreator)
+  );
+}
+
+export function sellBaseInputInternalWithFees(
+  base: bigint,
+  slippageBasisPoints: bigint,
+  baseReserve: bigint,
+  quoteReserve: bigint,
+  feeBasisPoints: PumpSwapFeeBasisPoints
+): SellBaseInputResult {
   if (baseReserve === BigInt(0) || quoteReserve === BigInt(0)) {
     throw new Error('Invalid input: reserves cannot be zero');
   }
@@ -348,12 +424,9 @@ export function sellBaseInputInternal(
   const quoteAmountOut =
     (quoteReserve * base) / (baseReserve + base);
 
-  const lpFee = computeFee(quoteAmountOut, PUMPSWAP_CONSTANTS.LP_FEE_BASIS_POINTS);
-  const protocolFee = computeFee(quoteAmountOut, PUMPSWAP_CONSTANTS.PROTOCOL_FEE_BASIS_POINTS);
-  let coinCreatorFee = BigInt(0);
-  if (hasCoinCreator) {
-    coinCreatorFee = computeFee(quoteAmountOut, PUMPSWAP_CONSTANTS.COIN_CREATOR_FEE_BASIS_POINTS);
-  }
+  const lpFee = computeFee(quoteAmountOut, feeBasisPoints.lpFeeBasisPoints);
+  const protocolFee = computeFee(quoteAmountOut, feeBasisPoints.protocolFeeBasisPoints);
+  const coinCreatorFee = computeFee(quoteAmountOut, feeBasisPoints.coinCreatorFeeBasisPoints);
 
   const totalFees = lpFee + protocolFee + coinCreatorFee;
   if (totalFees > quoteAmountOut) {
@@ -379,6 +452,22 @@ export function sellQuoteInputInternal(
   quoteReserve: bigint,
   hasCoinCreator: boolean
 ): SellQuoteInputResult {
+  return sellQuoteInputInternalWithFees(
+    quote,
+    slippageBasisPoints,
+    baseReserve,
+    quoteReserve,
+    legacyPumpSwapFeeBasisPoints(hasCoinCreator)
+  );
+}
+
+export function sellQuoteInputInternalWithFees(
+  quote: bigint,
+  slippageBasisPoints: bigint,
+  baseReserve: bigint,
+  quoteReserve: bigint,
+  feeBasisPoints: PumpSwapFeeBasisPoints
+): SellQuoteInputResult {
   if (baseReserve === BigInt(0) || quoteReserve === BigInt(0)) {
     throw new Error('Invalid input: reserves cannot be zero');
   }
@@ -386,16 +475,11 @@ export function sellQuoteInputInternal(
     throw new Error('Cannot receive more than pool reserves');
   }
 
-  let coinCreatorFee = BigInt(0);
-  if (hasCoinCreator) {
-    coinCreatorFee = PUMPSWAP_CONSTANTS.COIN_CREATOR_FEE_BASIS_POINTS;
-  }
-
   const rawQuote = calculateQuoteAmountOut(
     quote,
-    PUMPSWAP_CONSTANTS.LP_FEE_BASIS_POINTS,
-    PUMPSWAP_CONSTANTS.PROTOCOL_FEE_BASIS_POINTS,
-    coinCreatorFee
+    feeBasisPoints.lpFeeBasisPoints,
+    feeBasisPoints.protocolFeeBasisPoints,
+    feeBasisPoints.coinCreatorFeeBasisPoints
   );
 
   if (rawQuote >= quoteReserve) {
@@ -1055,4 +1139,3 @@ export function priceToken1InToken0(
 ): number {
   return 1.0 / priceToken0InToken1(sqrtPriceX64, decimalsToken0, decimalsToken1);
 }
-

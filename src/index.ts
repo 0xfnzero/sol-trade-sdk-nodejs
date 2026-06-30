@@ -706,6 +706,14 @@ export interface PumpSwapParams {
   quoteTokenProgram: PublicKey;
   isMayhemMode: boolean;
   isCashbackCoin: boolean;
+  poolCreator?: PublicKey;
+  coinCreator?: PublicKey;
+  cashbackFeeBasisPoints?: bigint;
+  feeBasisPoints?: {
+    lpFeeBasisPoints: bigint;
+    protocolFeeBasisPoints: bigint;
+    coinCreatorFeeBasisPoints: bigint;
+  };
 }
 
 export interface ParserPumpSwapTradeEvent {
@@ -720,11 +728,28 @@ export interface ParserPumpSwapTradeEvent {
   coin_creator_vault_authority?: string | PublicKey;
   base_token_program?: string | PublicKey;
   quote_token_program?: string | PublicKey;
+  pool_creator?: string | PublicKey;
+  creator?: string | PublicKey;
+  coin_creator?: string | PublicKey;
+  cashback_fee_basis_points?: bigint | number | string;
+  lp_fee_basis_points?: bigint | number | string;
+  protocol_fee_basis_points?: bigint | number | string;
+  coin_creator_fee_basis_points?: bigint | number | string;
   is_mayhem_mode?: boolean;
   is_cashback_coin?: boolean;
 }
 
+function parserU64BigInt(value: bigint | number | string | undefined): bigint {
+  if (value === undefined || value === null || value === '') return BigInt(0);
+  return typeof value === 'bigint' ? value : BigInt(value);
+}
+
 export function pumpSwapParamsFromParserTrade(event: ParserPumpSwapTradeEvent): PumpSwapParams {
+  const coinCreator = parserPublicKey(event.coin_creator ?? event.creator);
+  const hasFeeBasisPoints =
+    event.lp_fee_basis_points !== undefined ||
+    event.protocol_fee_basis_points !== undefined ||
+    event.coin_creator_fee_basis_points !== undefined;
   return {
     pool: parserPublicKey(event.pool),
     baseMint: parserPublicKey(event.base_mint),
@@ -739,6 +764,16 @@ export function pumpSwapParamsFromParserTrade(event: ParserPumpSwapTradeEvent): 
     quoteTokenProgram: parserPublicKey(event.quote_token_program),
     isMayhemMode: !!event.is_mayhem_mode,
     isCashbackCoin: !!event.is_cashback_coin,
+    poolCreator: parserPublicKey(event.pool_creator),
+    coinCreator,
+    cashbackFeeBasisPoints: parserU64BigInt(event.cashback_fee_basis_points),
+    feeBasisPoints: hasFeeBasisPoints
+      ? {
+          lpFeeBasisPoints: parserU64BigInt(event.lp_fee_basis_points),
+          protocolFeeBasisPoints: parserU64BigInt(event.protocol_fee_basis_points),
+          coinCreatorFeeBasisPoints: parserU64BigInt(event.coin_creator_fee_basis_points),
+        }
+      : undefined,
   };
 }
 

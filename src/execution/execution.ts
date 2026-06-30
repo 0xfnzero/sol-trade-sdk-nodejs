@@ -474,6 +474,19 @@ export interface PumpSwapParams extends DexParam {
   quoteMint: Uint8Array;
   poolBaseTokenAccount: Uint8Array;
   poolQuoteTokenAccount: Uint8Array;
+  poolBaseTokenReserves?: bigint;
+  poolQuoteTokenReserves?: bigint;
+  coinCreatorVaultAta?: Uint8Array;
+  coinCreatorVaultAuthority?: Uint8Array;
+  baseTokenProgram?: Uint8Array;
+  quoteTokenProgram?: Uint8Array;
+  coinCreator?: Uint8Array;
+  cashbackFeeBasisPoints?: bigint;
+  feeBasisPoints?: {
+    lpFeeBasisPoints: bigint;
+    protocolFeeBasisPoints: bigint;
+    coinCreatorFeeBasisPoints: bigint;
+  };
 }
 
 /**

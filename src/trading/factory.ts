@@ -91,6 +91,14 @@ export interface PumpSwapParams {
   quoteTokenProgram?: PublicKey;
   isMayhemMode?: boolean;
   isCashbackCoin?: boolean;
+  poolCreator?: PublicKey;
+  coinCreator?: PublicKey;
+  cashbackFeeBasisPoints?: bigint;
+  feeBasisPoints?: {
+    lpFeeBasisPoints: bigint;
+    protocolFeeBasisPoints: bigint;
+    coinCreatorFeeBasisPoints: bigint;
+  };
 }
 
 export interface BonkParams {

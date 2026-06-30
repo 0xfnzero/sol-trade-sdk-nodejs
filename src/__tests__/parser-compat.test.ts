@@ -79,4 +79,34 @@ describe('decoded event parameter adapter helpers', () => {
     expect(params.coinCreatorVaultAta.toBase58()).toBe(vault.toBase58());
     expect(params.coinCreatorVaultAuthority.toBase58()).toBe(authority.toBase58());
   });
+
+  it('maps PumpSwap fee basis points from decoded events', () => {
+    const creator = PublicKey.unique();
+    const params = pumpSwapParamsFromParserTrade({
+      pool: PublicKey.unique(),
+      base_mint: PublicKey.unique(),
+      quote_mint: CONSTANTS.USDC_TOKEN_ACCOUNT,
+      pool_base_token_account: PublicKey.unique(),
+      pool_quote_token_account: PublicKey.unique(),
+      pool_base_token_reserves: 10n,
+      pool_quote_token_reserves: 20n,
+      coin_creator_vault_ata: PublicKey.unique(),
+      coin_creator_vault_authority: PublicKey.unique(),
+      base_token_program: CONSTANTS.TOKEN_PROGRAM,
+      quote_token_program: CONSTANTS.TOKEN_PROGRAM,
+      coin_creator: creator,
+      cashback_fee_basis_points: 4n,
+      lp_fee_basis_points: 20n,
+      protocol_fee_basis_points: 5n,
+      coin_creator_fee_basis_points: 75n,
+    });
+
+    expect(params.coinCreator?.toBase58()).toBe(creator.toBase58());
+    expect(params.cashbackFeeBasisPoints).toBe(4n);
+    expect(params.feeBasisPoints).toEqual({
+      lpFeeBasisPoints: 20n,
+      protocolFeeBasisPoints: 5n,
+      coinCreatorFeeBasisPoints: 75n,
+    });
+  });
 });

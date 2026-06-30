@@ -21,8 +21,11 @@ import {
   getAssociatedTokenAddress as getPumpSwapAta,
   getCoinCreatorVaultAta,
   getCoinCreatorVaultAuthority,
+  fetchFeeConfig as fetchPumpSwapFeeConfig,
+  computePumpSwapFeeBasisPoints,
   type PumpSwapPool,
 } from '../instruction/pumpswap';
+import type { PumpSwapFeeBasisPoints } from '../calc';
 import {
   fetchBonkPoolState,
   getBonkPoolPDA,
@@ -52,6 +55,11 @@ function wrapConnection(connection: Connection) {
       config?: Parameters<Connection['getProgramAccounts']>[1]
     ) => connection.getProgramAccounts(programId, config),
   };
+}
+
+function decodeMintSupply(data: Buffer): bigint | null {
+  if (data.length < 44) return null;
+  return data.readBigUInt64LE(36);
 }
 
 // ============== Bonding Curve ==============
@@ -230,23 +238,34 @@ export class PumpSwapParams {
     public baseTokenProgram: PublicKey,
     public quoteTokenProgram: PublicKey,
     public isMayhemMode: boolean,
-    public isCashbackCoin: boolean
+    public isCashbackCoin: boolean,
+    public coinCreator: PublicKey = PublicKey.default,
+    public cashbackFeeBasisPoints: bigint = BigInt(0),
+    public feeBasisPoints: PumpSwapFeeBasisPoints = {
+      lpFeeBasisPoints: BigInt(25),
+      protocolFeeBasisPoints: BigInt(5),
+      coinCreatorFeeBasisPoints: coinCreator.equals(PublicKey.default) ? BigInt(0) : BigInt(5),
+    },
+    public poolCreator: PublicKey = PublicKey.default,
+    public baseMintSupply: bigint | null = null
   ) {}
 
   static async fromPoolAddressByRpc(
     connection: Connection,
-    poolAddress: PublicKey
+    poolAddress: PublicKey,
+    feeBasisPoints?: PumpSwapFeeBasisPoints
   ): Promise<PumpSwapParams> {
     const pool = await fetchPumpSwapPool(wrapConnection(connection), poolAddress);
     if (!pool) {
       throw new Error('PumpSwap pool account not found or invalid');
     }
-    return PumpSwapParams.fromPoolData(connection, poolAddress, pool);
+    return PumpSwapParams.fromPoolData(connection, poolAddress, pool, feeBasisPoints);
   }
 
   static async fromMintByRpc(
     connection: Connection,
-    mint: PublicKey
+    mint: PublicKey,
+    feeBasisPoints?: PumpSwapFeeBasisPoints
   ): Promise<PumpSwapParams> {
     const rpc = wrapConnection(connection);
     const found = await findPumpSwapPoolByMint(
@@ -259,14 +278,16 @@ export class PumpSwapParams {
     return PumpSwapParams.fromPoolData(
       connection,
       found.poolAddress,
-      found.pool
+      found.pool,
+      feeBasisPoints
     );
   }
 
   private static async fromPoolData(
     connection: Connection,
     poolAddress: PublicKey,
-    pool: PumpSwapPool
+    pool: PumpSwapPool,
+    feeBasisPointsOverride?: PumpSwapFeeBasisPoints
   ): Promise<PumpSwapParams> {
     const balances = await getPumpSwapTokenBalances(wrapConnection(connection), pool);
     if (!balances) {
@@ -288,6 +309,25 @@ export class PumpSwapParams {
     const quoteTokenProgram = pool.poolQuoteTokenAccount.equals(quoteAtaTp)
       ? TOKEN_PROGRAM
       : TOKEN_PROGRAM_2022;
+    const rpc = wrapConnection(connection);
+    const mintAccount = await rpc.getAccountInfo(pool.baseMint).catch(() => undefined);
+    const baseMintSupply = mintAccount?.value?.data
+      ? decodeMintSupply(Buffer.from(mintAccount.value.data))
+      : null;
+    const rawFeeBasisPoints = feeBasisPointsOverride ?? computePumpSwapFeeBasisPoints(
+      await fetchPumpSwapFeeConfig(rpc).catch(() => null),
+      pool.creator,
+      pool.baseMint,
+      baseMintSupply,
+      balances.baseBalance,
+      balances.quoteBalance
+    );
+    const feeBasisPoints = {
+      ...rawFeeBasisPoints,
+      coinCreatorFeeBasisPoints: pool.coinCreator.equals(PublicKey.default)
+        ? BigInt(0)
+        : rawFeeBasisPoints.coinCreatorFeeBasisPoints,
+    };
     return new PumpSwapParams(
       poolAddress,
       pool.baseMint,
@@ -301,7 +341,12 @@ export class PumpSwapParams {
       baseTokenProgram,
       quoteTokenProgram,
       pool.isMayhemMode,
-      pool.isCashbackCoin
+      pool.isCashbackCoin,
+      pool.coinCreator,
+      BigInt(0),
+      feeBasisPoints,
+      pool.creator,
+      baseMintSupply
     );
   }
 }
