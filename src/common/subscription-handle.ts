@@ -3,8 +3,8 @@
  * Provides subscription management for accounts, programs, and signatures.
  */
 
-import { PublicKey, Connection, Commitment } from '@solana/web3.js';
-import type { GetProgramAccountsFilter } from '@solana/web3.js';
+import { PublicKey, Connection, Commitment } from "@solana/web3.js";
+import type { GetProgramAccountsFilter } from "@solana/web3.js";
 
 // ===== Subscription State =====
 
@@ -12,11 +12,11 @@ import type { GetProgramAccountsFilter } from '@solana/web3.js';
  * Subscription state enum
  */
 export enum SubscriptionState {
-  Pending = 'pending',
-  Active = 'active',
-  Paused = 'paused',
-  Error = 'error',
-  Closed = 'closed',
+  Pending = "pending",
+  Active = "active",
+  Paused = "paused",
+  Error = "error",
+  Closed = "closed",
 }
 
 // ===== Subscription Configuration =====
@@ -26,7 +26,7 @@ export enum SubscriptionState {
  */
 export interface SubscriptionConfig {
   commitment?: Commitment;
-  encoding?: 'base58' | 'base64' | 'base64+zstd' | 'jsonParsed';
+  encoding?: "base58" | "base64" | "base64+zstd" | "jsonParsed";
 }
 
 /**
@@ -74,12 +74,17 @@ export class SubscriptionHandle {
   private lastUpdate?: Date;
   private updateCount: number = 0;
 
+  private _unsubscribePromise?: Promise<void>;
   private _unsubscribeFn?: () => Promise<void>;
 
   constructor(
-    private type: 'account' | 'program' | 'signature',
-    private config: AccountSubscriptionConfig | ProgramSubscriptionConfig | SignatureSubscriptionConfig,
-    unsubscribeFn?: () => Promise<void>
+    private type: "account" | "program" | "signature" | "slot" | "root",
+    private config:
+      | AccountSubscriptionConfig
+      | ProgramSubscriptionConfig
+      | SignatureSubscriptionConfig
+      | SubscriptionConfig,
+    unsubscribeFn?: () => Promise<void>,
   ) {
     this._unsubscribeFn = unsubscribeFn;
   }
@@ -87,14 +92,18 @@ export class SubscriptionHandle {
   /**
    * Get subscription type
    */
-  getType(): 'account' | 'program' | 'signature' {
+  getType(): "account" | "program" | "signature" | "slot" | "root" {
     return this.type;
   }
 
   /**
    * Get subscription configuration
    */
-  getConfig(): AccountSubscriptionConfig | ProgramSubscriptionConfig | SignatureSubscriptionConfig {
+  getConfig():
+    | AccountSubscriptionConfig
+    | ProgramSubscriptionConfig
+    | SignatureSubscriptionConfig
+    | SubscriptionConfig {
     return this.config;
   }
 
@@ -188,19 +197,20 @@ export class SubscriptionHandle {
    * Unsubscribe from this subscription
    */
   async unsubscribe(): Promise<void> {
-    if (this.state === SubscriptionState.Closed) {
-      return;
-    }
-
-    try {
-      if (this._unsubscribeFn) {
-        await this._unsubscribeFn();
+    if (this.state === SubscriptionState.Closed) return;
+    if (this._unsubscribePromise) return this._unsubscribePromise;
+    this._unsubscribePromise = (async () => {
+      try {
+        if (this._unsubscribeFn) await this._unsubscribeFn();
+        this.state = SubscriptionState.Closed;
+      } catch (error) {
+        this.setError(error as Error);
+        throw error;
+      } finally {
+        this._unsubscribePromise = undefined;
       }
-      this.state = SubscriptionState.Closed;
-    } catch (error) {
-      this.setError(error as Error);
-      throw error;
-    }
+    })();
+    return this._unsubscribePromise;
   }
 }
 
@@ -212,6 +222,22 @@ export class SubscriptionHandle {
 export class SubscriptionManager {
   private subscriptions: Map<string, SubscriptionHandle> = new Map();
   private connection: Connection;
+  private pending = new Map<string, Promise<void>>();
+
+  private async serial<T>(key: string, action: () => Promise<T>): Promise<T> {
+    const previous = this.pending.get(key) ?? Promise.resolve();
+    const result = previous.then(action, action);
+    const tail = result.then(
+      () => {},
+      () => {},
+    );
+    this.pending.set(key, tail);
+    try {
+      return await result;
+    } finally {
+      if (this.pending.get(key) === tail) this.pending.delete(key);
+    }
+  }
 
   constructor(connection: Connection) {
     this.connection = connection;
@@ -229,34 +255,36 @@ export class SubscriptionManager {
    */
   async subscribeAccount(
     config: AccountSubscriptionConfig,
-    callback: (accountInfo: any, context: any) => void
+    callback: (accountInfo: any, context: any) => void,
   ): Promise<SubscriptionHandle> {
-    const key = this.generateKey('account', config.publicKey.toBase58());
+    const key = this.generateKey("account", config.publicKey.toBase58());
+    return this.serial(key, async () => {
+      // Unsubscribe existing if any
+      if (this.subscriptions.has(key)) {
+        await this.subscriptions.get(key)!.unsubscribe();
+      }
 
-    // Unsubscribe existing if any
-    if (this.subscriptions.has(key)) {
-      await this.subscriptions.get(key)!.unsubscribe();
-    }
+      const handle = new SubscriptionHandle("account", config);
+      handle.setState(SubscriptionState.Active);
 
-    const handle = new SubscriptionHandle('account', config);
-    handle.setState(SubscriptionState.Active);
+      const subscriptionId = this.connection.onAccountChange(
+        config.publicKey,
+        (accountInfo, context) => {
+          if (!handle.isActive()) return;
+          handle.recordUpdate();
+          callback(accountInfo, context);
+        },
+        config.commitment ?? "confirmed",
+      );
 
-    const subscriptionId = this.connection.onAccountChange(
-      config.publicKey,
-      (accountInfo, context) => {
-        handle.recordUpdate();
-        callback(accountInfo, context);
-      },
-      config.commitment ?? 'confirmed'
-    );
+      handle.setSubscriptionId(subscriptionId);
+      handle.setUnsubscribeFn(async () => {
+        await this.connection.removeAccountChangeListener(subscriptionId);
+      });
 
-    handle.setSubscriptionId(subscriptionId);
-    handle.setUnsubscribeFn(async () => {
-      await this.connection.removeAccountChangeListener(subscriptionId);
+      this.subscriptions.set(key, handle);
+      return handle;
     });
-
-    this.subscriptions.set(key, handle);
-    return handle;
   }
 
   /**
@@ -264,47 +292,53 @@ export class SubscriptionManager {
    */
   async subscribeProgram(
     config: ProgramSubscriptionConfig,
-    callback: (keyedAccountInfo: any, context: any) => void
+    callback: (keyedAccountInfo: any, context: any) => void,
   ): Promise<SubscriptionHandle> {
-    const key = this.generateKey('program', config.programId.toBase58());
+    const key = this.generateKey("program", config.programId.toBase58());
+    return this.serial(key, async () => {
+      // Unsubscribe existing if any
+      if (this.subscriptions.has(key)) {
+        await this.subscriptions.get(key)!.unsubscribe();
+      }
 
-    // Unsubscribe existing if any
-    if (this.subscriptions.has(key)) {
-      await this.subscriptions.get(key)!.unsubscribe();
-    }
+      const handle = new SubscriptionHandle("program", config);
+      handle.setState(SubscriptionState.Active);
 
-    const handle = new SubscriptionHandle('program', config);
-    handle.setState(SubscriptionState.Active);
+      const filters: GetProgramAccountsFilter[] | undefined = config.filters
+        ?.map((filter): GetProgramAccountsFilter | undefined => {
+          if (filter.memcmp) {
+            return { memcmp: filter.memcmp };
+          }
+          if (filter.dataSize !== undefined) {
+            return { dataSize: filter.dataSize };
+          }
+          return undefined;
+        })
+        .filter(
+          (filter): filter is GetProgramAccountsFilter => filter !== undefined,
+        );
 
-    const filters: GetProgramAccountsFilter[] | undefined = config.filters
-      ?.map((filter): GetProgramAccountsFilter | undefined => {
-        if (filter.memcmp) {
-          return { memcmp: filter.memcmp };
-        }
-        if (filter.dataSize !== undefined) {
-          return { dataSize: filter.dataSize };
-        }
-        return undefined;
-      })
-      .filter((filter): filter is GetProgramAccountsFilter => filter !== undefined);
+      const subscriptionId = this.connection.onProgramAccountChange(
+        config.programId,
+        (keyedAccountInfo, context) => {
+          if (!handle.isActive()) return;
+          handle.recordUpdate();
+          callback(keyedAccountInfo, context);
+        },
+        config.commitment ?? "confirmed",
+        filters,
+      );
 
-    const subscriptionId = this.connection.onProgramAccountChange(
-      config.programId,
-      (keyedAccountInfo, context) => {
-        handle.recordUpdate();
-        callback(keyedAccountInfo, context);
-      },
-      config.commitment ?? 'confirmed',
-      filters
-    );
+      handle.setSubscriptionId(subscriptionId);
+      handle.setUnsubscribeFn(async () => {
+        await this.connection.removeProgramAccountChangeListener(
+          subscriptionId,
+        );
+      });
 
-    handle.setSubscriptionId(subscriptionId);
-    handle.setUnsubscribeFn(async () => {
-      await this.connection.removeProgramAccountChangeListener(subscriptionId);
+      this.subscriptions.set(key, handle);
+      return handle;
     });
-
-    this.subscriptions.set(key, handle);
-    return handle;
   }
 
   /**
@@ -312,92 +346,104 @@ export class SubscriptionManager {
    */
   async subscribeSignature(
     config: SignatureSubscriptionConfig,
-    callback: (signatureResult: any, context: any) => void
+    callback: (signatureResult: any, context: any) => void,
   ): Promise<SubscriptionHandle> {
-    const key = this.generateKey('signature', config.signature);
+    const key = this.generateKey("signature", config.signature);
+    return this.serial(key, async () => {
+      // Unsubscribe existing if any
+      if (this.subscriptions.has(key)) {
+        await this.subscriptions.get(key)!.unsubscribe();
+      }
 
-    // Unsubscribe existing if any
-    if (this.subscriptions.has(key)) {
-      await this.subscriptions.get(key)!.unsubscribe();
-    }
+      const handle = new SubscriptionHandle("signature", config);
+      handle.setState(SubscriptionState.Active);
 
-    const handle = new SubscriptionHandle('signature', config);
-    handle.setState(SubscriptionState.Active);
+      const subscriptionId = this.connection.onSignature(
+        config.signature,
+        (signatureResult, context) => {
+          if (!handle.isActive()) return;
+          handle.recordUpdate();
+          handle.setUnsubscribeFn(async () => {});
+          handle.setState(SubscriptionState.Closed);
+          callback(signatureResult, context);
+        },
+        config.commitment ?? "confirmed",
+      );
 
-    const subscriptionId = this.connection.onSignature(
-      config.signature,
-      (signatureResult, context) => {
-        handle.recordUpdate();
-        callback(signatureResult, context);
-      },
-      config.commitment ?? 'confirmed'
-    );
+      handle.setSubscriptionId(subscriptionId);
+      handle.setUnsubscribeFn(async () => {
+        await this.connection.removeSignatureListener(subscriptionId);
+      });
 
-    handle.setSubscriptionId(subscriptionId);
-    handle.setUnsubscribeFn(async () => {
-      await this.connection.removeSignatureListener(subscriptionId);
+      this.subscriptions.set(key, handle);
+      return handle;
     });
-
-    this.subscriptions.set(key, handle);
-    return handle;
   }
 
   /**
    * Subscribe to slot changes
    */
-  async subscribeSlot(callback: (slotInfo: any) => void): Promise<SubscriptionHandle> {
-    const key = this.generateKey('slot', 'global');
+  async subscribeSlot(
+    callback: (slotInfo: any) => void,
+  ): Promise<SubscriptionHandle> {
+    const key = this.generateKey("slot", "global");
+    return this.serial(key, async () => {
+      // Unsubscribe existing if any
+      if (this.subscriptions.has(key)) {
+        await this.subscriptions.get(key)!.unsubscribe();
+      }
 
-    // Unsubscribe existing if any
-    if (this.subscriptions.has(key)) {
-      await this.subscriptions.get(key)!.unsubscribe();
-    }
+      const config: SubscriptionConfig = {};
+      const handle = new SubscriptionHandle("slot", config);
+      handle.setState(SubscriptionState.Active);
 
-    const config: SubscriptionConfig = {};
-    const handle = new SubscriptionHandle('slot' as any, config as any);
-    handle.setState(SubscriptionState.Active);
+      const subscriptionId = this.connection.onSlotChange((slotInfo) => {
+        if (!handle.isActive()) return;
+        handle.recordUpdate();
+        callback(slotInfo);
+      });
 
-    const subscriptionId = this.connection.onSlotChange((slotInfo) => {
-      handle.recordUpdate();
-      callback(slotInfo);
+      handle.setSubscriptionId(subscriptionId);
+      handle.setUnsubscribeFn(async () => {
+        await this.connection.removeSlotChangeListener(subscriptionId);
+      });
+
+      this.subscriptions.set(key, handle);
+      return handle;
     });
-
-    handle.setSubscriptionId(subscriptionId);
-    handle.setUnsubscribeFn(async () => {
-      await this.connection.removeSlotChangeListener(subscriptionId);
-    });
-
-    this.subscriptions.set(key, handle);
-    return handle;
   }
 
   /**
    * Subscribe to root changes
    */
-  async subscribeRoot(callback: (root: number) => void): Promise<SubscriptionHandle> {
-    const key = this.generateKey('root', 'global');
+  async subscribeRoot(
+    callback: (root: number) => void,
+  ): Promise<SubscriptionHandle> {
+    const key = this.generateKey("root", "global");
+    return this.serial(key, async () => {
+      // Unsubscribe existing if any
+      if (this.subscriptions.has(key)) {
+        await this.subscriptions.get(key)!.unsubscribe();
+      }
 
-    // Unsubscribe existing if any
-    if (this.subscriptions.has(key)) {
-      await this.subscriptions.get(key)!.unsubscribe();
-    }
+      const config: SubscriptionConfig = {};
+      const handle = new SubscriptionHandle("root", config);
+      handle.setState(SubscriptionState.Active);
 
-    const config: SubscriptionConfig = {};
-    const handle = new SubscriptionHandle('signature', config as SignatureSubscriptionConfig);
-    handle.setState(SubscriptionState.Active);
+      const subscriptionId = this.connection.onRootChange((root) => {
+        if (!handle.isActive()) return;
+        handle.recordUpdate();
+        callback(root);
+      });
 
-    const subscriptionId = this.connection.onRootChange((root) => {
-      handle.recordUpdate();
-      callback(root);
+      handle.setSubscriptionId(subscriptionId);
+      handle.setUnsubscribeFn(async () => {
+        await this.connection.removeRootChangeListener(subscriptionId);
+      });
+
+      this.subscriptions.set(key, handle);
+      return handle;
     });
-
-    handle.setSubscriptionId(subscriptionId);
-    handle.setUnsubscribeFn(async () => {
-      await this.connection.removeRootChangeListener(subscriptionId);
-    });
-
-    this.subscriptions.set(key, handle);
-    return handle;
   }
 
   /**
@@ -417,7 +463,9 @@ export class SubscriptionManager {
   /**
    * Get subscriptions by type
    */
-  getSubscriptionsByType(type: 'account' | 'program' | 'signature'): SubscriptionHandle[] {
+  getSubscriptionsByType(
+    type: "account" | "program" | "signature" | "slot" | "root",
+  ): SubscriptionHandle[] {
     return this.getAllSubscriptions().filter((sub) => sub.getType() === type);
   }
 
@@ -428,7 +476,8 @@ export class SubscriptionManager {
     const handle = this.subscriptions.get(key);
     if (handle) {
       await handle.unsubscribe();
-      this.subscriptions.delete(key);
+      if (this.subscriptions.get(key) === handle)
+        this.subscriptions.delete(key);
     }
   }
 
@@ -440,8 +489,9 @@ export class SubscriptionManager {
     for (const [key, handle] of this.subscriptions) {
       promises.push(
         handle.unsubscribe().then(() => {
-          this.subscriptions.delete(key);
-        })
+          if (this.subscriptions.get(key) === handle)
+            this.subscriptions.delete(key);
+        }),
       );
     }
     await Promise.all(promises);
@@ -462,11 +512,16 @@ export class SubscriptionManager {
     const subs = this.getAllSubscriptions();
     return {
       total: subs.length,
-      active: subs.filter((s) => s.getState() === SubscriptionState.Active).length,
-      pending: subs.filter((s) => s.getState() === SubscriptionState.Pending).length,
-      paused: subs.filter((s) => s.getState() === SubscriptionState.Paused).length,
-      error: subs.filter((s) => s.getState() === SubscriptionState.Error).length,
-      closed: subs.filter((s) => s.getState() === SubscriptionState.Closed).length,
+      active: subs.filter((s) => s.getState() === SubscriptionState.Active)
+        .length,
+      pending: subs.filter((s) => s.getState() === SubscriptionState.Pending)
+        .length,
+      paused: subs.filter((s) => s.getState() === SubscriptionState.Paused)
+        .length,
+      error: subs.filter((s) => s.getState() === SubscriptionState.Error)
+        .length,
+      closed: subs.filter((s) => s.getState() === SubscriptionState.Closed)
+        .length,
       totalUpdates: subs.reduce((sum, s) => sum + s.getUpdateCount(), 0),
     };
   }
@@ -482,7 +537,7 @@ export class AccountSubscription {
 
   constructor(
     private manager: SubscriptionManager,
-    private publicKey: PublicKey
+    private publicKey: PublicKey,
   ) {}
 
   /**
@@ -490,11 +545,11 @@ export class AccountSubscription {
    */
   async subscribe(
     callback: (accountInfo: any, context: any) => void,
-    commitment?: Commitment
+    commitment?: Commitment,
   ): Promise<SubscriptionHandle> {
     this.handle = await this.manager.subscribeAccount(
       { publicKey: this.publicKey, commitment },
-      callback
+      callback,
     );
     return this.handle;
   }
@@ -525,7 +580,7 @@ export class ProgramSubscription {
 
   constructor(
     private manager: SubscriptionManager,
-    private programId: PublicKey
+    private programId: PublicKey,
   ) {}
 
   /**
@@ -534,11 +589,11 @@ export class ProgramSubscription {
   async subscribe(
     callback: (keyedAccountInfo: any, context: any) => void,
     filters?: ProgramAccountFilter[],
-    commitment?: Commitment
+    commitment?: Commitment,
   ): Promise<SubscriptionHandle> {
     this.handle = await this.manager.subscribeProgram(
       { programId: this.programId, filters, commitment },
-      callback
+      callback,
     );
     return this.handle;
   }
@@ -569,7 +624,7 @@ export class SignatureSubscription {
 
   constructor(
     private manager: SubscriptionManager,
-    private signature: string
+    private signature: string,
   ) {}
 
   /**
@@ -577,11 +632,11 @@ export class SignatureSubscription {
    */
   async subscribe(
     callback: (signatureResult: any, context: any) => void,
-    commitment?: Commitment
+    commitment?: Commitment,
   ): Promise<SubscriptionHandle> {
     this.handle = await this.manager.subscribeSignature(
       { signature: this.signature, commitment },
-      callback
+      callback,
     );
     return this.handle;
   }
@@ -609,7 +664,9 @@ export class SignatureSubscription {
 /**
  * Create a subscription manager
  */
-export function createSubscriptionManager(connection: Connection): SubscriptionManager {
+export function createSubscriptionManager(
+  connection: Connection,
+): SubscriptionManager {
   return new SubscriptionManager(connection);
 }
 
@@ -618,7 +675,7 @@ export function createSubscriptionManager(connection: Connection): SubscriptionM
  */
 export function createAccountSubscription(
   manager: SubscriptionManager,
-  publicKey: PublicKey
+  publicKey: PublicKey,
 ): AccountSubscription {
   return new AccountSubscription(manager, publicKey);
 }
@@ -628,7 +685,7 @@ export function createAccountSubscription(
  */
 export function createProgramSubscription(
   manager: SubscriptionManager,
-  programId: PublicKey
+  programId: PublicKey,
 ): ProgramSubscription {
   return new ProgramSubscription(manager, programId);
 }
@@ -638,7 +695,7 @@ export function createProgramSubscription(
  */
 export function createSignatureSubscription(
   manager: SubscriptionManager,
-  signature: string
+  signature: string,
 ): SignatureSubscription {
   return new SignatureSubscription(manager, signature);
 }

@@ -14,6 +14,7 @@ import {
   createGasFeeStrategy,
   SwqosType,
   SwqosRegion,
+  SwqosTransport,
   TradeType,
   TradeTokenType,
   TradeConfigBuilder,
@@ -65,6 +66,8 @@ import {
   FallbackSwqosClient,
   MIN_TIP_DEFAULT,
   MIN_TIP_SOLAMI,
+  MIN_TIP_LUNARLANDER,
+  MIN_TIP_GLAIVE,
   NODE1_ENDPOINTS,
   SOYAS_ENDPOINTS,
   SolamiClient as SenderSolamiClient,
@@ -72,6 +75,7 @@ import {
   STELLIUM_ENDPOINTS,
   TemporalClient as SenderTemporalClient,
   TemporalQuicClient as SenderTemporalQuicClient,
+  buildGlaiveBinaryUrl,
 } from '../swqos/clients';
 import {
   AstralaneClient as ProviderAstralaneClient,
@@ -270,9 +274,9 @@ describe('Calculations', () => {
 
   it('should calculate PumpFun sell output', () => {
     const sol = getSellSolAmountFromTokenAmount(
-      1000000000n, // 1 million tokens
+      1073000000000000n, // virtual token reserve
       30000000000n,
-      1073000000000000n,
+      false,
       1000000000n
     );
     expect(sol > 0n).toBe(true);
@@ -541,7 +545,7 @@ describe('Simple trade params', () => {
 });
 
 describe('Solami SWQOS parity', () => {
-  it('sender factory creates Solami client with Rust v4.0.21 defaults', () => {
+  it('sender factory creates Solami client with Rust v5.0.2 defaults', () => {
     const client = SenderClientFactory.createClient(
       { type: SwqosType.Solami, region: SwqosRegion.Tokyo },
       'https://rpc.example'
@@ -691,7 +695,7 @@ describe('Solami SWQOS parity', () => {
     ).toThrow(/Unsupported SWQOS type/);
   });
 
-  it('rejects NextBlock because Rust v4.0.21 blacklists it by default', () => {
+  it('rejects NextBlock because Rust v5.0.2 blacklists it by default', () => {
     const cfg = createTradeConfig('https://x', [
       { type: SwqosType.NextBlock, region: SwqosRegion.Frankfurt, apiKey: 'token' },
     ]);
@@ -706,7 +710,7 @@ describe('Solami SWQOS parity', () => {
 });
 
 describe('SWQOS endpoint parity', () => {
-  it('matches Rust v4.0.21 key region fallbacks', () => {
+  it('matches Rust v5.0.2 key region fallbacks', () => {
     expect(MIN_TIP_DEFAULT).toBe(0.00001);
     expect(BLOXROUTE_ENDPOINTS[SwqosRegion.Singapore]).toBe('https://tokyo.solana.dex.blxrbdn.com');
     expect(NODE1_ENDPOINTS[SwqosRegion.Singapore]).toBe('http://tk.node1.me');
@@ -717,6 +721,54 @@ describe('SWQOS endpoint parity', () => {
     expect(STELLIUM_ENDPOINTS[SwqosRegion.Singapore]).toBe('http://tyo1.flashrpc.com');
     expect(SOYAS_ENDPOINTS[SwqosRegion.Singapore]).toBe('tyo.landing.soyas.xyz:9000');
     expect(SPEEDLANDING_ENDPOINTS[SwqosRegion.Singapore]).toBe('sgp.speedlanding.trade:17778');
+  });
+});
+
+describe('Glaive and LunarLander SWQOS parity', () => {
+  const testUuid = '00112233-4455-4677-8899-aabbccddeeff';
+
+  it('defaults LunarLander and Glaive to QUIC clients', () => {
+    const lunar = SenderClientFactory.createClient(
+      { type: SwqosType.LunarLander, region: SwqosRegion.Frankfurt, apiKey: 'key' },
+      'https://rpc.example'
+    );
+    expect(lunar.getSwqosType()).toBe(SwqosType.LunarLander);
+    expect(lunar.minTipSol()).toBe(MIN_TIP_LUNARLANDER);
+    expect(lunar.constructor.name).toBe('LunarLanderQuicClient');
+
+    const glaive = SenderClientFactory.createClient(
+      { type: SwqosType.Glaive, region: SwqosRegion.Frankfurt, apiKey: testUuid },
+      'https://rpc.example'
+    );
+    expect(glaive.getSwqosType()).toBe(SwqosType.Glaive);
+    expect(glaive.minTipSol()).toBe(MIN_TIP_GLAIVE);
+    expect(glaive.constructor.name).toBe('GlaiveQuicClient');
+  });
+
+  it('builds Glaive binary URL with official query names', () => {
+    const url = buildGlaiveBinaryUrl('http://fra.glaive.trade', testUuid, true);
+    expect(url).toContain('/binary');
+    expect(url).toContain(`api-key=${testUuid}`);
+    expect(url).toContain('mev-protect=true');
+  });
+
+  it('rejects Glaive gRPC transport', () => {
+    expect(() =>
+      SenderClientFactory.createClient(
+        {
+          type: SwqosType.Glaive,
+          region: SwqosRegion.Frankfurt,
+          apiKey: testUuid,
+          transport: SwqosTransport.Grpc,
+        },
+        'https://rpc.example'
+      )
+    ).toThrow(/gRPC/);
+  });
+
+  it('exposes providers for LunarLander and Glaive', () => {
+    expect(SwqosClientFactory.getSupportedTypes()).toContain(ProviderSwqosType.LunarLander);
+    expect(SwqosClientFactory.getSupportedTypes()).toContain(ProviderSwqosType.Glaive);
   });
 });
 

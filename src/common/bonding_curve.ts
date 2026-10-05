@@ -1,272 +1,101 @@
-/**
- * Bonding curve account for Pump.fun.
- * Based on sol-trade-sdk Rust implementation.
- */
-
+/** PumpFun curve account: exact u64 storage and pinned Rust account math. */
 import { PublicKey } from '@solana/web3.js';
-import {
-  getBuyTokenAmountFromSolAmount,
-  getSellSolAmountFromTokenAmount,
-  INITIAL_VIRTUAL_TOKEN_RESERVES,
-  INITIAL_VIRTUAL_SOL_RESERVES,
-  INITIAL_REAL_TOKEN_RESERVES,
-  TOKEN_TOTAL_SUPPLY,
-} from '../calc/pumpfun';
-
-/**
- * Represents the bonding curve account for token pricing
- */
-export class BondingCurveAccount {
-  discriminator: number = 0;
-  account: PublicKey = PublicKey.default;
-  virtualTokenReserves: number = 0;
-  virtualSolReserves: number = 0;
-  realTokenReserves: number = 0;
-  realSolReserves: number = 0;
-  tokenTotalSupply: number = TOKEN_TOTAL_SUPPLY;
-  complete: boolean = false;
-  creator: PublicKey = PublicKey.default;
-  isMayhemMode: boolean = false;
-  isCashbackCoin: boolean = false;
-
-  constructor(fields?: Partial<BondingCurveAccount>) {
-    if (fields) {
-      Object.assign(this, fields);
-    }
-  }
-
-  /**
-   * Create from dev trade data
-   */
-  static fromDevTrade(
-    bondingCurve: PublicKey,
-    mint: PublicKey,
-    devTokenAmount: number,
-    devSolAmount: number,
-    creator: PublicKey,
-    isMayhemMode: boolean = false,
-    isCashbackCoin: boolean = false,
-  ): BondingCurveAccount {
-    return new BondingCurveAccount({
-      discriminator: 0,
-      account: bondingCurve,
-      virtualTokenReserves: INITIAL_VIRTUAL_TOKEN_RESERVES - devTokenAmount,
-      virtualSolReserves: INITIAL_VIRTUAL_SOL_RESERVES + devSolAmount,
-      realTokenReserves: INITIAL_REAL_TOKEN_RESERVES - devTokenAmount,
-      realSolReserves: devSolAmount,
-      tokenTotalSupply: TOKEN_TOTAL_SUPPLY,
-      complete: false,
-      creator,
-      isMayhemMode,
-      isCashbackCoin,
-    });
-  }
-
-  /**
-   * Create from trade data
-   */
-  static fromTrade(
-    bondingCurve: PublicKey,
-    mint: PublicKey,
-    creator: PublicKey,
-    virtualTokenReserves: number,
-    virtualSolReserves: number,
-    realTokenReserves: number,
-    realSolReserves: number,
-    isMayhemMode: boolean = false,
-    isCashbackCoin: boolean = false,
-  ): BondingCurveAccount {
-    return new BondingCurveAccount({
-      discriminator: 0,
-      account: bondingCurve,
-      virtualTokenReserves,
-      virtualSolReserves,
-      realTokenReserves,
-      realSolReserves,
-      tokenTotalSupply: TOKEN_TOTAL_SUPPLY,
-      complete: false,
-      creator,
-      isMayhemMode,
-      isCashbackCoin,
-    });
-  }
-
-  /**
-   * Calculate tokens received for given SOL amount
-   */
-  getBuyPrice(amount: number): number {
-    if (this.complete) {
-      throw new Error('Curve is complete');
-    }
-
-    return getBuyTokenAmountFromSolAmount(
-      this.virtualTokenReserves,
-      this.virtualSolReserves,
-      this.realTokenReserves,
-      this.creator.toBytes(),
-      amount,
-    );
-  }
-
-  /**
-   * Calculate SOL received for given token amount
-   */
-  getSellPrice(amount: number): number {
-    if (this.complete) {
-      throw new Error('Curve is complete');
-    }
-
-    return getSellSolAmountFromTokenAmount(
-      this.virtualTokenReserves,
-      this.virtualSolReserves,
-      this.creator.toBytes(),
-      amount,
-    );
-  }
-
-  /**
-   * Calculate current market cap in SOL
-   */
-  getMarketCapSol(): number {
-    if (this.virtualTokenReserves === 0) {
-      return 0;
-    }
-
-    const pricePerToken = this.virtualSolReserves / this.virtualTokenReserves;
-    return (pricePerToken * this.tokenTotalSupply) / 1e9;
-  }
-
-  /**
-   * Calculate price to buy out all remaining tokens
-   */
-  getBuyOutPrice(amount: number): number {
-    if (this.complete) {
-      throw new Error('Curve is complete');
-    }
-
-    // Rough estimate: current price * amount
-    if (this.virtualTokenReserves === 0) {
-      return 0;
-    }
-
-    const priceRatio = this.virtualSolReserves / this.virtualTokenReserves;
-    return Math.floor(priceRatio * amount);
-  }
-
-  /**
-   * Calculate the current token price in SOL.
-   * 100% from Rust: src/common/bonding_curve.rs get_token_price
-   */
-  getTokenPrice(): number {
-    const vSol = this.virtualSolReserves / 100_000_000.0;
-    const vTokens = this.virtualTokenReserves / 100_000.0;
-    if (vTokens === 0) {
-      return 0.0;
-    }
-    return vSol / vTokens;
-  }
-
-  /**
-   * Calculate the final market cap in SOL after all tokens are sold.
-   * 100% from Rust: src/common/bonding_curve.rs get_final_market_cap_sol
-   */
-  getFinalMarketCapSol(feeBasisPoints: number = 95): bigint {
-    const totalSellValue = this.getBuyOutPriceInternal(this.realTokenReserves, feeBasisPoints);
-    const totalVirtualValue = BigInt(this.virtualSolReserves) + BigInt(totalSellValue);
-    const totalVirtualTokens = BigInt(this.virtualTokenReserves) - BigInt(this.realTokenReserves);
-
-    if (totalVirtualTokens === 0n) {
-      return 0n;
-    }
-
-    return (BigInt(this.tokenTotalSupply) * totalVirtualValue) / totalVirtualTokens;
-  }
-
-  private getBuyOutPriceInternal(amount: number, feeBasisPoints: number): number {
-    const solTokens = Math.max(amount, this.realSolReserves);
-
-    if (this.virtualTokenReserves <= solTokens) {
-      return 0;
-    }
-
-    const totalSellValue = Number((BigInt(solTokens) * BigInt(this.virtualSolReserves)) / (BigInt(this.virtualTokenReserves) - BigInt(solTokens))) + 1;
-    const fee = Math.floor((totalSellValue * feeBasisPoints) / 10000);
-
-    return totalSellValue + fee;
-  }
+import { decodePumpFunBondingCurveData } from '../params';
+import { getBondingCurvePda, getCreatorVaultPda } from '../instruction/pumpfun_builder';
+import { WSOL_TOKEN_ACCOUNT, USDC_TOKEN_ACCOUNT, SOL_TOKEN_ACCOUNT } from '../constants';
+const MAX = (1n << 64n) - 1n;
+function u64(value: bigint): bigint {
+  if (typeof value !== 'bigint' || value < 0n || value > MAX) throw new RangeError('Expected u64 bigint');
+  return value;
 }
-
-// ===== Decoding Functions - from Rust: src/instruction/utils/pumpfun.rs =====
-
-export const BONDING_CURVE_ACCOUNT_SIZE = 8 + 8 + 8 + 8 + 8 + 8 + 1 + 32 + 1 + 1; // 77 bytes after discriminator
-
-/**
- * Decode a BondingCurveAccount from on-chain account data.
- * 100% from Rust: src/common/bonding_curve.rs
- */
-export function decodeBondingCurveAccount(data: Buffer, account?: PublicKey): BondingCurveAccount | null {
-  if (data.length < BONDING_CURVE_ACCOUNT_SIZE) {
-    return null;
+function low64(value: bigint): bigint { return BigInt.asUintN(64, value); }
+export class BondingCurveAccount {
+  discriminator = 0;
+  account = PublicKey.default;
+  virtualTokenReserves = 0n;
+  virtualSolReserves = 0n;
+  realTokenReserves = 0n;
+  realSolReserves = 0n;
+  tokenTotalSupply = 0n;
+  complete = false;
+  creator = PublicKey.default;
+  isMayhemMode = false;
+  isCashbackCoin = false;
+  quoteMint = PublicKey.default;
+  constructor(fields?: Partial<BondingCurveAccount>) {
+    if (fields) Object.assign(this, fields);
+    for (const n of [this.virtualTokenReserves, this.virtualSolReserves, this.realTokenReserves, this.realSolReserves, this.tokenTotalSupply]) u64(n);
   }
-
-  try {
-    let offset = 0;
-
-    // Check if data starts with discriminator (8 bytes)
-    if (data.length >= 8 + BONDING_CURVE_ACCOUNT_SIZE) {
-      // Skip discriminator
-      offset = 8;
+  private validateReserves(): void {
+    for (const value of [this.virtualTokenReserves,this.virtualSolReserves,this.realTokenReserves,this.realSolReserves,this.tokenTotalSupply]) u64(value);
+  }
+  static normalizeQuoteMint(mint: PublicKey): PublicKey {
+    return mint.equals(PublicKey.default) || mint.equals(SOL_TOKEN_ACCOUNT) ? WSOL_TOKEN_ACCOUNT : mint;
+  }
+  effectiveQuoteMint(): PublicKey { return BondingCurveAccount.normalizeQuoteMint(this.quoteMint); }
+  static initialVirtualQuoteReservesForQuoteMint(mint: PublicKey): bigint { return mint.equals(USDC_TOKEN_ACCOUNT) ? 4_292_000_000n : 30_000_000_000n; }
+  virtualQuoteReserves(): bigint { return this.virtualSolReserves; }
+  realQuoteReserves(): bigint { return this.realSolReserves; }
+  withQuoteMint(mint: PublicKey): this {
+    const normalized = BondingCurveAccount.normalizeQuoteMint(mint);
+    const initial = BondingCurveAccount.initialVirtualQuoteReservesForQuoteMint(this.effectiveQuoteMint());
+    const previous = initial + this.realSolReserves;
+    if (this.virtualSolReserves === (previous > MAX ? MAX : previous)) {
+      const next = BondingCurveAccount.initialVirtualQuoteReservesForQuoteMint(normalized) + this.realSolReserves;
+      this.virtualSolReserves = next > MAX ? MAX : next;
     }
-
-    // virtual_token_reserves: u64
-    const virtualTokenReserves = Number(data.readBigUInt64LE(offset));
-    offset += 8;
-
-    // virtual_sol_reserves: u64
-    const virtualSolReserves = Number(data.readBigUInt64LE(offset));
-    offset += 8;
-
-    // real_token_reserves: u64
-    const realTokenReserves = Number(data.readBigUInt64LE(offset));
-    offset += 8;
-
-    // real_sol_reserves: u64
-    const realSolReserves = Number(data.readBigUInt64LE(offset));
-    offset += 8;
-
-    // token_total_supply: u64
-    const tokenTotalSupply = Number(data.readBigUInt64LE(offset));
-    offset += 8;
-
-    // complete: bool
-    const complete = data.readUInt8(offset) === 1;
-    offset += 1;
-
-    // creator: Pubkey (32 bytes)
-    const creator = new PublicKey(data.subarray(offset, offset + 32));
-    offset += 32;
-
-    // is_mayhem_mode: bool
-    const isMayhemMode = data.readUInt8(offset) === 1;
-    offset += 1;
-
-    // is_cashback_coin: bool
-    const isCashbackCoin = data.readUInt8(offset) === 1;
-
-    return new BondingCurveAccount({
-      discriminator: 0,
-      account: account ?? PublicKey.default,
-      virtualTokenReserves,
-      virtualSolReserves,
-      realTokenReserves,
-      realSolReserves,
-      tokenTotalSupply,
-      complete,
-      creator,
-      isMayhemMode,
-      isCashbackCoin,
-    });
-  } catch {
-    return null;
+    this.quoteMint = normalized;
+    return this;
   }
+  static fromDevTrade(bondingCurve: PublicKey, mint: PublicKey, token: bigint, quote: bigint, creator: PublicKey, mayhem = false, cashback = false, quoteMint = WSOL_TOKEN_ACCOUNT): BondingCurveAccount {
+    u64(token); u64(quote);
+    const normalized = BondingCurveAccount.normalizeQuoteMint(quoteMint);
+    const virtualQuote = BondingCurveAccount.initialVirtualQuoteReservesForQuoteMint(normalized) + quote;
+    if (token > 793_100_000_000_000n || virtualQuote > MAX) throw new RangeError('Invalid dev trade reserves');
+    return new BondingCurveAccount({account: bondingCurve.equals(PublicKey.default) ? getBondingCurvePda(mint) : bondingCurve, virtualTokenReserves: 1_073_000_000_000_000n - token, virtualSolReserves: virtualQuote, realTokenReserves: 793_100_000_000_000n - token, realSolReserves: quote, tokenTotalSupply: 1_000_000_000_000_000n, creator, isMayhemMode: mayhem, isCashbackCoin: cashback, quoteMint: normalized});
+  }
+  static fromTrade(bondingCurve: PublicKey, mint: PublicKey, creator: PublicKey, virtualTokenReserves: bigint, virtualSolReserves: bigint, realTokenReserves: bigint, realSolReserves: bigint, isMayhemMode = false, isCashbackCoin = false, quoteMint = WSOL_TOKEN_ACCOUNT): BondingCurveAccount {
+    return new BondingCurveAccount({account: bondingCurve.equals(PublicKey.default) ? getBondingCurvePda(mint) : bondingCurve, creator, virtualTokenReserves, virtualSolReserves, realTokenReserves, realSolReserves, tokenTotalSupply: 1_000_000_000_000_000n, isMayhemMode, isCashbackCoin, quoteMint: BondingCurveAccount.normalizeQuoteMint(quoteMint)});
+  }
+  getCreatorVaultPda(): PublicKey { return getCreatorVaultPda(this.creator); }
+  getBuyPrice(amount: bigint): bigint {
+    this.validateReserves(); u64(amount); if (this.complete) throw new Error('Curve is complete');
+    if (amount === 0n) return 0n;
+    const r = this.virtualSolReserves * this.virtualTokenReserves / (this.virtualSolReserves + amount) + 1n;
+    if (r > this.virtualTokenReserves) throw new RangeError('Invalid curve reserves');
+    const out = low64(this.virtualTokenReserves - r);
+    return out < this.realTokenReserves ? out : this.realTokenReserves;
+  }
+  getSellPrice(amount: bigint, feeBasisPoints = 95n): bigint {
+    this.validateReserves(); u64(amount); u64(feeBasisPoints); if (this.complete) throw new Error('Curve is complete');
+    if (amount === 0n) return 0n;
+    const gross = amount * this.virtualSolReserves / (this.virtualTokenReserves + amount);
+    const fee = gross * feeBasisPoints / 10_000n;
+    if (fee > gross) throw new RangeError('Fee exceeds output');
+    return low64(gross - fee);
+  }
+  getMarketCapSol(): bigint { this.validateReserves(); return this.virtualTokenReserves === 0n ? 0n : low64(this.tokenTotalSupply * this.virtualSolReserves / this.virtualTokenReserves); }
+  getBuyOutPrice(amount: bigint, feeBasisPoints = 95n): bigint {
+    this.validateReserves(); u64(amount); u64(feeBasisPoints);
+    const tokens = amount > this.realSolReserves ? amount : this.realSolReserves;
+    if (tokens >= this.virtualTokenReserves) throw new RangeError('Invalid buyout reserves');
+    const value = tokens * this.virtualSolReserves / (this.virtualTokenReserves - tokens) + 1n;
+    return low64(value + value * feeBasisPoints / 10_000n);
+  }
+  getFinalMarketCapSol(feeBasisPoints = 95n): bigint {
+    const value = this.getBuyOutPrice(this.realTokenReserves, feeBasisPoints);
+    const tokens = this.virtualTokenReserves - this.realTokenReserves;
+    if (tokens < 0n) throw new RangeError('Invalid curve reserves');
+    return tokens === 0n ? 0n : low64(this.tokenTotalSupply * (this.virtualSolReserves + value) / tokens);
+  }
+  getTokenPrice(): number { return (Number(this.virtualSolReserves) / 100_000_000) / (Number(this.virtualTokenReserves) / 100_000); }
+}
+export const BONDING_CURVE_ACCOUNT_SIZE = 115;
+export function decodeBondingCurveAccount(data: Buffer, account = PublicKey.default): BondingCurveAccount | null {
+  try {
+    const discriminator = Buffer.from([23,183,248,55,96,216,172,96]);
+    const rawBody = (data.length === 75 || data.length === 107) && !data.subarray(0, 8).equals(discriminator);
+    const prefixed = rawBody ? Buffer.concat([discriminator, data]) : data;
+    return new BondingCurveAccount(decodePumpFunBondingCurveData(prefixed, account));
+  } catch { return null; }
 }

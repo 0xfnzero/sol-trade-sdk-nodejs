@@ -25,18 +25,19 @@ export class ValidationError extends Error {
  */
 export const KNOWN_PROGRAM_IDS: Record<string, string[]> = {
   // PumpFun
-  pumpfun: ['6EF8rrecthR5Dkzon8Nwu78hRvfCKopJFfWcCzNfXt3D'],
+  pumpfun: ['6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P'],
   // PumpSwap
-  pumpswap: ['pAMMBay6oceH9fJKBRdGP4LmVn7LKwEqT7dPWn1oLKs'],
+  pumpswap: ['pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA'],
   // Raydium
   raydium: [
-    'CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK', // CPMM
+    'CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C',
+    'CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK', // CLMM
     '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8', // AMM V4
   ],
   // Meteora
-  meteora: ['MERLuDFBMmsHnsBPZw2sDQZHvXFM4sPkHePSuUZnPdK'], // DAMM V2
+  meteora: ['cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG', 'LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo'], // DAMM V2
   // Bonk
-  bonk: ['bLGPY3zYMBUfok1bMna4jrHGG3QdhSCuLZxUx2fMMLo'],
+  bonk: ['LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj'],
   // System programs
   system: [
     '11111111111111111111111111111111', // System Program

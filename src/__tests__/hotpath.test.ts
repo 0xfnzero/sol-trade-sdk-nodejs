@@ -251,11 +251,14 @@ describe('TradingContext', () => {
     await state.start();
     await new Promise((resolve) => setTimeout(resolve, 100));
 
-    const context = new TradingContext(state, 'payer');
-
-    await new Promise((resolve) => setTimeout(resolve, 100));
-
-    expect(context.age()).toBeGreaterThanOrEqual(100);
+    const now = vi.spyOn(Date, 'now').mockReturnValue(10_000);
+    try {
+      const context = new TradingContext(state, 'payer');
+      now.mockReturnValue(10_100);
+      expect(context.age()).toBe(100);
+    } finally {
+      now.mockRestore();
+    }
   });
 
   it('should check validity', async () => {

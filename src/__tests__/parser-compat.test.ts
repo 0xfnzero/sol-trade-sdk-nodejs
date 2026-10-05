@@ -21,8 +21,8 @@ describe('decoded event parameter adapter helpers', () => {
     });
 
     expect(params.quoteMint?.toBase58()).toBe(CONSTANTS.USDC_TOKEN_ACCOUNT.toBase58());
-    expect(params.bondingCurve.virtualSolReserves).toBe(4_292_000_000);
-    expect(params.bondingCurve.realSolReserves).toBe(123_456);
+    expect(params.bondingCurve.virtualSolReserves).toBe(4_292_000_000n);
+    expect(params.bondingCurve.realSolReserves).toBe(123_456n);
     expect(params.bondingCurve.isCashbackCoin).toBe(true);
   });
 
@@ -38,8 +38,8 @@ describe('decoded event parameter adapter helpers', () => {
       token_program: CONSTANTS.TOKEN_PROGRAM.toBase58(),
     });
 
-    expect(params.bondingCurve.virtualSolReserves).toBe(0);
-    expect(params.bondingCurve.realSolReserves).toBe(0);
+    expect(params.bondingCurve.virtualSolReserves).toBe(0n);
+    expect(params.bondingCurve.realSolReserves).toBe(0n);
   });
 
   it('maps Solscan SOL quote mint to legacy PumpFun reserves', () => {
@@ -55,8 +55,8 @@ describe('decoded event parameter adapter helpers', () => {
     });
 
     expect(params.quoteMint?.toBase58()).toBe(PublicKey.default.toBase58());
-    expect(params.bondingCurve.virtualSolReserves).toBe(30_123_456_789);
-    expect(params.bondingCurve.realSolReserves).toBe(123_456_789);
+    expect(params.bondingCurve.virtualSolReserves).toBe(30_123_456_789n);
+    expect(params.bondingCurve.realSolReserves).toBe(123_456_789n);
   });
 
   it('maps PumpSwap creator vault accounts from decoded events', () => {
@@ -137,5 +137,18 @@ describe('decoded event parameter adapter helpers', () => {
       protocolFeeBasisPoints: 5n,
       coinCreatorFeeBasisPoints: 75n,
     });
+  });
+});
+
+ describe('PumpFun exact parser integers', () => {
+  it('preserves full u64 range and curve quote context', () => {
+    const maximum = (1n << 64n) - 1n;
+    const p = pumpFunParamsFromParserTrade({quote_mint: CONSTANTS.USDC_TOKEN_ACCOUNT, virtual_token_reserves: maximum.toString(), virtual_quote_reserves: maximum});
+    expect(p.bondingCurve.virtualTokenReserves).toBe(maximum);
+    expect(p.bondingCurve.virtualSolReserves).toBe(maximum);
+    expect(p.bondingCurve.quoteMint).toEqual(CONSTANTS.USDC_TOKEN_ACCOUNT);
+  });
+  it.each([-1n, 1n << 64n, Number.MAX_SAFE_INTEGER + 1, 1.5, NaN, Infinity, '1e3', '0x10', ' 1 '])('rejects invalid reserves %s', value => {
+    expect(() => pumpFunParamsFromParserTrade({virtual_token_reserves: value})).toThrow();
   });
 });

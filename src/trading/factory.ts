@@ -1,10 +1,12 @@
+import {CachedTradeExecutor,type CachedDexType} from "./cached_trade";
 /**
  * Trading factory and executor for Sol Trade SDK
  *
  * Provides factory methods for creating trade executors for different DEX protocols
  */
 
-import type { PublicKey } from '@solana/web3.js';
+import type {CachedTradeRequest} from "./cached_trade";
+import type { PublicKey, Signer } from '@solana/web3.js';
 
 // ===== DEX Types =====
 
@@ -12,6 +14,11 @@ export enum DexType {
   PumpFun = 'PumpFun',
   PumpSwap = 'PumpSwap',
   Bonk = 'Bonk',
+  LaunchLab = 'LaunchLab',
+  StonkFun = 'StonkFun',
+  RaydiumClmm = 'RaydiumClmm',
+  OrcaWhirlpool = 'OrcaWhirlpool',
+  MeteoraDlmm = 'MeteoraDlmm',
   RaydiumCpmm = 'RaydiumCpmm',
   RaydiumAmmV4 = 'RaydiumAmmV4',
   MeteoraDammV2 = 'MeteoraDammV2',
@@ -26,7 +33,15 @@ export enum TradeType {
 
 // ===== Trade Result Types =====
 
+export interface TradeExecutionRequest {
+  request: CachedTradeRequest;
+  signers: readonly Signer[];
+  submit: (wire: Uint8Array, direction: "Buy" | "Sell") => Promise<string>;
+}
+
 export interface TradeResult {
+  submitted?: boolean;
+  confirmed?: boolean;
   signature: string;
   success: boolean;
   error?: string;
@@ -149,6 +164,8 @@ export interface RaydiumAmmV4Params {
   serumVaultSigner?: PublicKey;
   coinReserve?: bigint;
   pcReserve?: bigint;
+  swapFeeNumerator?:bigint;
+  swapFeeDenominator?:bigint;
 }
 
 export interface MeteoraDammV2Params {
@@ -164,15 +181,25 @@ export interface MeteoraDammV2Params {
 // ===== Trade Executor Interface =====
 
 export interface ITradeExecutor {
-  executeBuy(_params: Record<string, unknown>, _opts?: TradeExecuteOptions): Promise<TradeResult>;
-  executeSell(_params: Record<string, unknown>, _opts?: TradeExecuteOptions): Promise<TradeResult>;
+  executeBuy(_params: Record<string, unknown> | TradeExecutionRequest, _opts?: TradeExecuteOptions): Promise<TradeResult>;
+  executeSell(_params: Record<string, unknown> | TradeExecutionRequest, _opts?: TradeExecuteOptions): Promise<TradeResult>;
 }
 
 // ===== Base Executor =====
 
 export abstract class BaseExecutor implements ITradeExecutor {
-  abstract executeBuy(_params: Record<string, unknown>, _opts?: TradeExecuteOptions): Promise<TradeResult>;
-  abstract executeSell(_params: Record<string, unknown>, _opts?: TradeExecuteOptions): Promise<TradeResult>;
+  abstract executeBuy(_params: Record<string, unknown> | TradeExecutionRequest, _opts?: TradeExecuteOptions): Promise<TradeResult>;
+  abstract executeSell(_params: Record<string, unknown> | TradeExecutionRequest, _opts?: TradeExecuteOptions): Promise<TradeResult>;
+
+  protected async executeUnified(dexType: DexType, direction: "Buy" | "Sell", params: Record<string, unknown> | TradeExecutionRequest, opts?: TradeExecuteOptions): Promise<TradeResult> {
+    const p = params as unknown as TradeExecutionRequest;
+    if (!p?.request || !Array.isArray(p.signers) || typeof p.submit !== "function") throw Error("Provide TradeExecutionRequest with frozen state, signers and raw-wire submit");
+    if (p.request.dexType !== dexType) throw Error("Factory/request protocol mismatch");
+    if (p.request.tradeType !== direction) throw Error("Factory/request trade direction mismatch");
+    if (opts?.waitConfirmation) throw Error("RPC confirmation is unavailable on this hot path; consume gRPC evidence separately");
+    const receipt = await new CachedTradeExecutor(dexType as CachedDexType).execute(p.request,p.signers,p.submit);
+    return {...receipt,success:receipt.submitted,submittedAt:new Date()};
+  }
 
   protected buildResult(
     signature: string,
@@ -191,72 +218,72 @@ export abstract class BaseExecutor implements ITradeExecutor {
 // ===== PumpFun Executor =====
 
 export class PumpFunExecutor extends BaseExecutor {
-  async executeBuy(_params: Record<string, unknown>, _opts?: TradeExecuteOptions): Promise<TradeResult> {
-    return this.buildResult('', true);
+  async executeBuy(_params: Record<string, unknown> | TradeExecutionRequest, _opts?: TradeExecuteOptions): Promise<TradeResult> {
+    return this.executeUnified(DexType.PumpFun, 'Buy', _params, _opts);
   }
 
-  async executeSell(_params: Record<string, unknown>, _opts?: TradeExecuteOptions): Promise<TradeResult> {
-    return this.buildResult('', true);
+  async executeSell(_params: Record<string, unknown> | TradeExecutionRequest, _opts?: TradeExecuteOptions): Promise<TradeResult> {
+    return this.executeUnified(DexType.PumpFun, 'Sell', _params, _opts);
   }
 }
 
 // ===== PumpSwap Executor =====
 
 export class PumpSwapExecutor extends BaseExecutor {
-  async executeBuy(_params: Record<string, unknown>, _opts?: TradeExecuteOptions): Promise<TradeResult> {
-    return this.buildResult('', true);
+  async executeBuy(_params: Record<string, unknown> | TradeExecutionRequest, _opts?: TradeExecuteOptions): Promise<TradeResult> {
+    return this.executeUnified(DexType.PumpSwap, 'Buy', _params, _opts);
   }
 
-  async executeSell(_params: Record<string, unknown>, _opts?: TradeExecuteOptions): Promise<TradeResult> {
-    return this.buildResult('', true);
+  async executeSell(_params: Record<string, unknown> | TradeExecutionRequest, _opts?: TradeExecuteOptions): Promise<TradeResult> {
+    return this.executeUnified(DexType.PumpSwap, 'Sell', _params, _opts);
   }
 }
 
 // ===== Bonk Executor =====
 
 export class BonkExecutor extends BaseExecutor {
-  async executeBuy(_params: Record<string, unknown>, _opts?: TradeExecuteOptions): Promise<TradeResult> {
-    return this.buildResult('', true);
+  async executeBuy(_params: Record<string, unknown> | TradeExecutionRequest, _opts?: TradeExecuteOptions): Promise<TradeResult> {
+    return this.executeUnified(DexType.Bonk, 'Buy', _params, _opts);
   }
 
-  async executeSell(_params: Record<string, unknown>, _opts?: TradeExecuteOptions): Promise<TradeResult> {
-    return this.buildResult('', true);
+  async executeSell(_params: Record<string, unknown> | TradeExecutionRequest, _opts?: TradeExecuteOptions): Promise<TradeResult> {
+    return this.executeUnified(DexType.Bonk, 'Sell', _params, _opts);
   }
 }
 
 // ===== Raydium CPMM Executor =====
 
 export class RaydiumCpmmExecutor extends BaseExecutor {
-  async executeBuy(_params: Record<string, unknown>, _opts?: TradeExecuteOptions): Promise<TradeResult> {
-    return this.buildResult('', true);
+  async executeBuy(_params: Record<string, unknown> | TradeExecutionRequest, _opts?: TradeExecuteOptions): Promise<TradeResult> {
+    return this.executeUnified(DexType.RaydiumCpmm, 'Buy', _params, _opts);
   }
 
-  async executeSell(_params: Record<string, unknown>, _opts?: TradeExecuteOptions): Promise<TradeResult> {
-    return this.buildResult('', true);
+  async executeSell(_params: Record<string, unknown> | TradeExecutionRequest, _opts?: TradeExecuteOptions): Promise<TradeResult> {
+    return this.executeUnified(DexType.RaydiumCpmm, 'Sell', _params, _opts);
   }
 }
 
 // ===== Raydium AMM V4 Executor =====
 
 export class RaydiumAmmV4Executor extends BaseExecutor {
-  async executeBuy(_params: Record<string, unknown>, _opts?: TradeExecuteOptions): Promise<TradeResult> {
-    return this.buildResult('', true);
+  async executeBuy(_params: Record<string, unknown> | TradeExecutionRequest, _opts?: TradeExecuteOptions): Promise<TradeResult> {
+    return this.executeUnified(DexType.RaydiumAmmV4, 'Buy', _params, _opts);
   }
 
-  async executeSell(_params: Record<string, unknown>, _opts?: TradeExecuteOptions): Promise<TradeResult> {
-    return this.buildResult('', true);
+  async executeSell(_params: Record<string, unknown> | TradeExecutionRequest, _opts?: TradeExecuteOptions): Promise<TradeResult> {
+    return this.executeUnified(DexType.RaydiumAmmV4, 'Sell', _params, _opts);
   }
 }
 
 // ===== Meteora DAMM V2 Executor =====
 
 export class MeteoraDammV2Executor extends BaseExecutor {
-  async executeBuy(_params: Record<string, unknown>, _opts?: TradeExecuteOptions): Promise<TradeResult> {
-    return this.buildResult('', true);
+  async executeBuy(_params: Record<string, unknown> | TradeExecutionRequest, _opts?: TradeExecuteOptions): Promise<TradeResult> {
+    return this.executeUnified(DexType.MeteoraDammV2, 'Buy', _params, _opts);
   }
 
-  async executeSell(_params: Record<string, unknown>, _opts?: TradeExecuteOptions): Promise<TradeResult> {
-    return this.buildResult('', true);
+  async executeSell(_params: Record<string, unknown> | TradeExecutionRequest, _opts?: TradeExecuteOptions): Promise<TradeResult> {
+    return this.executeUnified(DexType.MeteoraDammV2, 'Sell', _params, _opts);
   }
 }
 
@@ -275,7 +302,13 @@ export class TradeExecutorFactory {
   /**
    * Create a trade executor for the given DEX type
    */
+  static getSupportedCachedDexTypes(): DexType[] {return [DexType.PumpFun,DexType.MeteoraDammV2,DexType.PumpSwap,DexType.RaydiumAmmV4,DexType.LaunchLab,DexType.Bonk,DexType.StonkFun,DexType.RaydiumCpmm,DexType.RaydiumClmm,DexType.OrcaWhirlpool,DexType.MeteoraDlmm];}
+  static createCachedExecutor(dexType: DexType): CachedTradeExecutor {
+    if(!['PumpFun','MeteoraDammV2','PumpSwap','RaydiumAmmV4','LaunchLab','Bonk','StonkFun','RaydiumCpmm','RaydiumClmm','OrcaWhirlpool','MeteoraDlmm'].includes(dexType))throw Error('Protocol has no native cached trade executor');
+    return new CachedTradeExecutor(dexType as CachedDexType);
+  }
   static createExecutor(dexType: DexType): ITradeExecutor {
+    if (!this.executors.has(dexType) && this.getSupportedCachedDexTypes().includes(dexType)) return new UnifiedTradeExecutor(dexType);
     const factory = this.executors.get(dexType);
     if (!factory) {
       throw new Error(`No executor available for DEX type: ${dexType}`);
@@ -294,8 +327,14 @@ export class TradeExecutorFactory {
    * Get supported DEX types
    */
   static getSupportedDexTypes(): DexType[] {
-    return Array.from(this.executors.keys());
+    return [...new Set([...this.executors.keys(),...this.getSupportedCachedDexTypes()])];
   }
 }
 
 // Main `TradingClient` lives in `src/index.ts` (parity with Rust SDK). Use `TradeExecutorFactory` for protocol stubs/tests.
+
+export class UnifiedTradeExecutor extends BaseExecutor {
+  constructor(private readonly dexType: DexType) { super(); }
+  executeBuy(params: Record<string,unknown> | TradeExecutionRequest,opts?:TradeExecuteOptions) {return this.executeUnified(this.dexType,"Buy",params,opts);}
+  executeSell(params: Record<string,unknown> | TradeExecutionRequest,opts?:TradeExecuteOptions) {return this.executeUnified(this.dexType,"Sell",params,opts);}
+}

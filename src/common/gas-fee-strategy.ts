@@ -26,6 +26,8 @@ export enum SwqosType {
   Soyas = 'Soyas',
   Speedlanding = 'Speedlanding',
   Solami = 'Solami',
+  LunarLander = 'LunarLander',
+  Glaive = 'Glaive',
   Triton = 'Triton',
   QuickNode = 'QuickNode',
   Syndica = 'Syndica',
@@ -83,6 +85,8 @@ export class GasFeeStrategy {
       SwqosType.Speedlanding,
       SwqosType.Helius,
       SwqosType.Solami,
+      SwqosType.LunarLander,
+      SwqosType.Glaive,
     ];
 
     for (const swqosType of allTypes) {

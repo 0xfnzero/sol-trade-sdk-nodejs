@@ -162,11 +162,11 @@ export function exampleBondingCurve(): BondingCurveAccount {
   return {
     discriminator: 0,
     account: examplePublicKey(11),
-    virtualTokenReserves: 1_000_000_000,
-    virtualSolReserves: 30_000_000_000,
-    realTokenReserves: 800_000_000,
-    realSolReserves: 24_000_000_000,
-    tokenTotalSupply: 1_000_000_000,
+    virtualTokenReserves: 1_000_000_000n,
+    virtualSolReserves: 30_000_000_000n,
+    realTokenReserves: 800_000_000n,
+    realSolReserves: 24_000_000_000n,
+    tokenTotalSupply: 1_000_000_000n,
     complete: false,
     creator: examplePublicKey(12),
     isMayhemMode: false,
@@ -285,6 +285,8 @@ export function dexParams(dexType: DexType): DexParamEnum {
       return { type: 'RaydiumAmmV4', params: raydiumAmmV4Params() };
     case DexType.MeteoraDammV2:
       return { type: 'MeteoraDammV2', params: meteoraDammV2Params() };
+    default:
+      throw new Error('This protocol requires current cached parameters; use examples/cached_trade.ts');
   }
 }
 

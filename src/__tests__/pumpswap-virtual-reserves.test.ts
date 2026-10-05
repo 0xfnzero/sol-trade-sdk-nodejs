@@ -12,7 +12,8 @@ describe('PumpSwap virtual quote reserves', () => {
   it('supports signed reserves and rejects invalid effective sums', () => {
     expect(effectiveQuoteReserves(1_000n, 250n)).toBe(1_250n);
     expect(effectiveQuoteReserves(1_000n, -250n)).toBe(750n);
-    expect(() => effectiveQuoteReserves(1_000n, -1_000n)).toThrow(
+    expect(effectiveQuoteReserves(1_000n, -1_000n)).toBe(0n);
+    expect(() => effectiveQuoteReserves(1_000n, -1_001n)).toThrow(
       'Invalid effective quote reserves'
     );
     expect(() => effectiveQuoteReserves((1n << 64n) - 1n, 1n)).toThrow(
@@ -87,4 +88,19 @@ describe('PumpSwap virtual quote reserves', () => {
     expect(() => sellBaseInputInternalWithFees(1_000_000n, 0n, 1n, 1n, 1_000_000n, fees))
       .toThrow('Insufficient real quote reserves');
   });
+});
+
+// A negative offset must behave exactly like a smaller vault in all four modes.
+describe('negative virtual reserves in every quote mode', () => {
+  const modes = [buyBaseInputInternalWithFees, buyQuoteInputInternalWithFees,
+    sellBaseInputInternalWithFees, sellQuoteInputInternalWithFees];
+  for (const quote of modes) {
+    it(quote.name, () => {
+      const fees = pumpSwapFeeBasisPoints(20n, 5n, 30n);
+      expect(quote(10_000n, 125n, 1_000_000n, 1_000_000n, -500_000n, fees))
+        .toEqual(quote(10_000n, 125n, 1_000_000n, 500_000n, 0n, fees));
+      expect(() => quote(10_000n, 125n, 1_000_000n, 1_000_000n, -1_000_000n, fees))
+        .toThrow('Invalid effective quote reserves');
+    });
+  }
 });

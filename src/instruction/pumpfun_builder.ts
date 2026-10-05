@@ -1,3 +1,4 @@
+import {pumpFunBuyExact,pumpFunSellExact} from "../calc/pumpfun_exact";
 /**
  * PumpFun Protocol Instruction Builder
  *
@@ -65,7 +66,7 @@ export const PUMPFUN_FEE_RECIPIENT = new PublicKey(
   "62qc2CNXwrYqQScmEdiZFFAnJR262PxWEuNQtxfafNgV"
 );
 
-/** Non-mayhem: random among primary + Pump.fun AMM protocol fee recipients (Rust `get_standard_fee_recipient_meta_random`). */
+/** Known normal fee recipients; the fallback for a bonding curve is the primary recipient. */
 export const PUMPFUN_STANDARD_FEE_RECIPIENTS: PublicKey[] = [
   PUMPFUN_FEE_RECIPIENT,
   new PublicKey("7VtfL8fvgNfhz17qKRMjzQEXgbdpnHHHQRh54R9jP2RJ"),
@@ -229,8 +230,7 @@ export function getRandomMayhemFeeRecipient(): PublicKey {
 }
 
 export function getStandardFeeRecipientRandom(): PublicKey {
-  const index = Math.floor(Math.random() * PUMPFUN_STANDARD_FEE_RECIPIENTS.length);
-  return PUMPFUN_STANDARD_FEE_RECIPIENTS[index] ?? PUMPFUN_FEE_RECIPIENT;
+  return PUMPFUN_FEE_RECIPIENT;
 }
 
 /** Random protocol extra fee recipient (after bonding-curve-v2, mutable). */
@@ -245,6 +245,22 @@ export function getPumpFunBuybackFeeRecipientRandom(): PublicKey {
   return PUMPFUN_BUYBACK_FEE_RECIPIENTS[index] ?? PUMPFUN_BUYBACK_FEE_RECIPIENTS[0]!;
 }
 
+/** Reconcile contradictory parser flags using the pinned bonding-curve fee pools. */
+export function reconcileMayhemModeForTrade(flag: boolean | undefined, recipient: PublicKey): boolean {
+  if (flag !== undefined && typeof flag !== "boolean") throw new TypeError("Mayhem flag must be boolean");
+  if (recipient.equals(PublicKey.default)) return flag ?? false;
+  const mayhem = PUMPFUN_MAYHEM_FEE_RECIPIENTS.some(k => k.equals(recipient));
+  if (flag === undefined) return mayhem;
+  if (mayhem && !flag) return true;
+  if (recipient.equals(PUMPFUN_FEE_RECIPIENT) && flag) return false;
+  return flag;
+}
+export function feeRecipientOkForBondingCurveMode(recipient: PublicKey, mayhem: boolean): boolean {
+  const reserved = PUMPFUN_MAYHEM_FEE_RECIPIENTS.some(k => k.equals(recipient));
+  const normal = PUMPFUN_STANDARD_FEE_RECIPIENTS.some(k => k.equals(recipient));
+  return mayhem ? reserved || (!normal && !recipient.equals(PublicKey.default)) : normal || (!reserved && !recipient.equals(PublicKey.default));
+}
+
 /**
  * Account #2 fee recipient: prefer gRPC/event `feeRecipient`; if `default` pubkey, random from mayhem or standard pool (Rust `pump_fun_fee_recipient_meta`).
  */
@@ -252,7 +268,7 @@ export function pumpFunFeeRecipientMeta(
   fromStream: PublicKey | undefined,
   isMayhemMode: boolean
 ): PublicKey {
-  if (fromStream && !fromStream.equals(PublicKey.default)) {
+  if (fromStream && feeRecipientOkForBondingCurveMode(fromStream, isMayhemMode)) {
     return fromStream;
   }
   return isMayhemMode ? getRandomMayhemFeeRecipient() : getStandardFeeRecipientRandom();
@@ -270,6 +286,7 @@ export interface PumpFunBondingCurve {
   creator?: PublicKey;
   isMayhemMode: boolean;
   isCashbackCoin: boolean;
+  quoteMint?: PublicKey;
 }
 
 export interface PumpFunParams {
@@ -282,7 +299,7 @@ export interface PumpFunParams {
   closeTokenAccountWhenSell?: boolean;
   /** From an already-decoded event (`tradeEvent.feeRecipient`); default pubkey -> random pool */
   feeRecipient?: PublicKey;
-  /** Layout selector: default/Solscan SOL sentinel keeps legacy SOL; WSOL/USDC selects V2. */
+  /** Pool quote identity; SOL/WSOL sentinels describe native pools. User settlement mint selects legacy SOL versus V2 WSOL. */
   quoteMint?: PublicKey;
 }
 
@@ -391,14 +408,15 @@ function effectivePumpMintTokenProgram(mint: PublicKey, protocolParams: PumpFunP
 }
 
 function effectiveQuoteMint(protocolParams: PumpFunParams): PublicKey {
-  if (!isUsablePubkey(protocolParams.quoteMint) || protocolParams.quoteMint.equals(SOL_TOKEN_ACCOUNT)) {
-    return NATIVE_MINT;
-  }
-  return protocolParams.quoteMint;
+  const quote = isUsablePubkey(protocolParams.quoteMint)
+    ? protocolParams.quoteMint
+    : protocolParams.bondingCurve.quoteMint;
+  if (!isUsablePubkey(quote) || quote.equals(SOL_TOKEN_ACCOUNT)) return NATIVE_MINT;
+  return quote;
 }
 
-function usesPumpFunV2Layout(protocolParams: PumpFunParams): boolean {
-  return isUsablePubkey(protocolParams.quoteMint) && !protocolParams.quoteMint.equals(SOL_TOKEN_ACCOUNT);
+function usesPumpFunV2Layout(protocolParams: PumpFunParams, settlementMint: PublicKey): boolean {
+  return !isSolQuoteMint(effectiveQuoteMint(protocolParams)) || settlementMint.equals(NATIVE_MINT);
 }
 
 function isSolQuoteMint(mint: PublicKey): boolean {
@@ -472,23 +490,7 @@ function getBuyTokenAmountFromSolAmount(
   bondingCurve: PumpFunBondingCurve,
   creator: PublicKey
 ): bigint {
-  if (amount === 0n || bondingCurve.virtualTokenReserves === 0n) {
-    return 0n;
-  }
-  const totalFeeBps =
-    PUMPFUN_FEE_BASIS_POINTS + (isUsablePubkey(creator) ? PUMPFUN_CREATOR_FEE_BASIS_POINTS : 0n);
-  const inputAmount = (amount * 10_000n) / (totalFeeBps + 10_000n);
-  const denominator = bondingCurve.virtualSolReserves + inputAmount;
-  if (denominator === 0n) {
-    return 0n;
-  }
-  let tokensReceived = (inputAmount * bondingCurve.virtualTokenReserves) / denominator;
-  tokensReceived =
-    tokensReceived < bondingCurve.realTokenReserves ? tokensReceived : bondingCurve.realTokenReserves;
-  if (tokensReceived <= 100n * 1_000_000n) {
-    tokensReceived = amount > 10_000_000n ? 25_547_619n * 1_000_000n : 255_476n * 1_000_000n;
-  }
-  return tokensReceived;
+  return pumpFunBuyExact(bondingCurve.virtualTokenReserves,bondingCurve.virtualSolReserves,bondingCurve.realTokenReserves,amount,PUMPFUN_FEE_BASIS_POINTS+(isUsablePubkey(creator)?PUMPFUN_CREATOR_FEE_BASIS_POINTS:0n));
 }
 
 function getSellSolAmountFromTokenAmount(
@@ -496,15 +498,7 @@ function getSellSolAmountFromTokenAmount(
   bondingCurve: PumpFunBondingCurve,
   creator: PublicKey
 ): bigint {
-  if (amount === 0n || bondingCurve.virtualTokenReserves === 0n) {
-    return 0n;
-  }
-  const solCost =
-    (amount * bondingCurve.virtualSolReserves) / (bondingCurve.virtualTokenReserves + amount);
-  const totalFeeBps =
-    PUMPFUN_FEE_BASIS_POINTS + (isUsablePubkey(creator) ? PUMPFUN_CREATOR_FEE_BASIS_POINTS : 0n);
-  const fee = (solCost * totalFeeBps + 9_999n) / 10_000n;
-  return solCost > fee ? solCost - fee : 0n;
+  return pumpFunSellExact(bondingCurve.virtualTokenReserves,bondingCurve.virtualSolReserves,amount,PUMPFUN_FEE_BASIS_POINTS+(isUsablePubkey(creator)?PUMPFUN_CREATOR_FEE_BASIS_POINTS:0n));
 }
 
 // ============================================
@@ -532,7 +526,8 @@ export function buildPumpFunBuyInstructions(
 	  useExactSolAmount = true,
 	} = params;
 
-	if (usesPumpFunV2Layout(protocolParams)) {
+	if (!inputMint.equals(PublicKey.default) && !usesPumpFunV2Layout(protocolParams,inputMint) && !isSolQuoteMint(inputMint)) throw Error("PumpFun native input_mint does not match quote_mint");
+	if (usesPumpFunV2Layout(protocolParams, inputMint)) {
 	  return buildPumpFunBuyV2Instructions({
 	    ...params,
 	    inputMint,
@@ -684,7 +679,8 @@ export function buildPumpFunSellInstructions(
 	  protocolParams,
 	} = params;
 
-	if (usesPumpFunV2Layout(protocolParams)) {
+	if (!outputMint.equals(PublicKey.default) && !usesPumpFunV2Layout(protocolParams,outputMint) && !isSolQuoteMint(outputMint)) throw Error("PumpFun native output_mint does not match quote_mint");
+	if (usesPumpFunV2Layout(protocolParams, outputMint)) {
 	  return buildPumpFunSellV2Instructions({
 	    ...params,
 	    outputMint,
@@ -1178,56 +1174,9 @@ export async function fetchBondingCurveAccount(
     return null;
   }
   
-  const data = account.value.data;
-  // Bonding curve data starts after 8-byte discriminator
-  let offset = 8;
-  
-  // virtual_token_reserves: u64
-  const virtualTokenReserves = data.readBigUInt64LE(offset);
-  offset += 8;
-  
-  // virtual_sol_reserves: u64
-  const virtualSolReserves = data.readBigUInt64LE(offset);
-  offset += 8;
-  
-  // real_token_reserves: u64
-  const realTokenReserves = data.readBigUInt64LE(offset);
-  offset += 8;
-  
-  // real_sol_reserves: u64
-  const realSolReserves = data.readBigUInt64LE(offset);
-  offset += 8;
-  
-  // token_total_supply: u64
-  offset += 8; // skip
-  
-  // complete: bool
-  const complete = data.readUInt8(offset) === 1;
-  offset += 1;
-  
-  // creator: Pubkey (32 bytes)
-  const creator = new PublicKey(data.subarray(offset, offset + 32));
-  offset += 32;
-  
-  // is_mayhem_mode: bool
-  const isMayhemMode = data.readUInt8(offset) === 1;
-  offset += 1;
-  
-  // is_cashback_coin: bool
-  const isCashbackCoin = data.readUInt8(offset) === 1;
-  
-  return {
-    bondingCurve: {
-      account: bondingCurvePda,
-      virtualTokenReserves,
-      virtualSolReserves,
-      realTokenReserves,
-      creator,
-      isMayhemMode,
-      isCashbackCoin,
-    },
-    bondingCurvePda,
-  };
+  const { decodePumpFunBondingCurveData } = await import('../params');
+  const curve = decodePumpFunBondingCurveData(account.value.data, bondingCurvePda);
+  return { bondingCurve: curve, bondingCurvePda };
 }
 
 /**

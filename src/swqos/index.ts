@@ -23,7 +23,7 @@ export type {
 export type { SwqosConfig as ProvidersSwqosConfig } from './providers';
 
 // Re-export provider classes with "Provider" suffix to avoid conflicts with clients.ts.
-// Factory-supported Rust v4.0.21 trading providers are exposed through
+// Factory-supported Rust v5.0.2 trading providers are exposed through
 // SwqosClientFactory.getSupportedTypes(). NextBlock is still Rust-blacklisted;
 // Triton/QuickNode/Syndica/Figment/Alchemy remain source-compatible legacy
 // classes and are not Rust-parity trading providers.

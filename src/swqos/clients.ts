@@ -14,7 +14,8 @@ import {
 import { TradeError } from '../sdk-errors';
 import bs58 from 'bs58';
 import * as grpc from '@grpc/grpc-js';
-import { Reader, Writer } from 'protobufjs/minimal';
+import protobuf from 'protobufjs/minimal.js';
+const { Reader, Writer } = protobuf;
 
 // ===== Utility =====
 
@@ -94,6 +95,8 @@ export const MIN_TIP_NEXT_BLOCK = 0.001;
 export const MIN_TIP_SOYAS = 0.001;
 export const MIN_TIP_SPEEDLANDING = 0.001;
 export const MIN_TIP_SOLAMI = 0.0001;
+export const MIN_TIP_LUNARLANDER = 0.001;
+export const MIN_TIP_GLAIVE = 0.0001;
 export const MIN_TIP_DEFAULT = 0.00001;
 
 // ===== Tip Accounts =====
@@ -270,6 +273,28 @@ const SOLAMI_TIP_ACCOUNTS = [
   'sV72TY66T1RfmDSeHPPbwX6wwJ3bBv5hd4ehJ8tbeam',
   'swf8MyEeLo7gtRUo27UuJj6naCASUrypU7dbteSbeam',
   'uiuaQsxA47JybQAVN4FTfYuoEDkMiXV1r591Aewbeam',
+];
+
+const LUNARLANDER_TIP_ACCOUNTS = [
+  'moon17L6BgxXRX5uHKudAmqVF96xia9h8ygcmG2sL3F',
+  'moon26Sek222Md7ZydcAGxoKG832DK36CkLrS3PQY4c',
+  'moon7fwyajcVstMoBnVy7UBcTx87SBtNoGGAaH2Cb8V',
+  'moonBtH9HvLHjLqi9ivyrMVKgFUsSfrz9BwQ9khhn1u',
+  'moonCJg8476LNFLptX1qrK8PdRsA1HD1R6XWyu9MB93',
+  'moonF2sz7qwAtdETnrgxNbjonnhGGjd6r4W4UC9284s',
+  'moonKfftMiGSak3cezvhEqvkPSzwrmQxQHXuspC96yj',
+  'moonQBUKBpkifLcTd78bfxxt4PYLwmJ5admLW6cBBs8',
+  'moonXwpKwoVkMegt5Bc776cSW793X1irL5hHV1vJ3JA',
+  'moonZ6u9E2fgk6eWd82621eLPHt9zuJuYECXAYjMY1C',
+];
+
+const GLAIVE_TIP_ACCOUNTS = [
+  'GLaiv4GMRYQmthatDS98uQT4HoucgxWT8NeJz6oSwxeU',
+  'GLaivL5uPrDpvd1wTtvat38KGqb5WLhEdqQfnmNd3oNr',
+  'GLaivinAWh21NaJMhtExtD5G2gZs1xnvaYVZmwqobWZL',
+  'GLaivJSUL71FcocYa8tks5vpVyYzvaDMHtyrzfQF2ABr',
+  'GLaivRU6eDKrta3p3psFAWPEFLzCjeMHGpPUuQqTjtyv',
+  'GLaivq5dU8qHayz9Qf13LjPfVy3SmUhbmickfGiZdmfh',
 ];
 
 // ===== Region Endpoint Maps =====
@@ -482,6 +507,58 @@ export const SOLAMI_ENDPOINTS: Record<SwqosRegion, string> = {
   [SwqosRegion.Default]: 'beam.solami.dev:11000',
 };
 
+export const LUNARLANDER_ENDPOINTS: Record<SwqosRegion, string> = {
+  [SwqosRegion.NewYork]: 'http://nyc-1.prod.lunar-lander.hellomoon.io',
+  [SwqosRegion.Frankfurt]: 'http://fra-1.prod.lunar-lander.hellomoon.io',
+  [SwqosRegion.Amsterdam]: 'http://ams-1.prod.lunar-lander.hellomoon.io',
+  [SwqosRegion.Dublin]: 'http://ams-1.prod.lunar-lander.hellomoon.io',
+  [SwqosRegion.SLC]: 'http://ash-2.prod.lunar-lander.hellomoon.io',
+  [SwqosRegion.Tokyo]: 'http://tyo-1.prod.lunar-lander.hellomoon.io',
+  [SwqosRegion.Singapore]: 'http://tyo-1.prod.lunar-lander.hellomoon.io',
+  [SwqosRegion.London]: 'http://fra-1.prod.lunar-lander.hellomoon.io',
+  [SwqosRegion.LosAngeles]: 'http://nyc-1.prod.lunar-lander.hellomoon.io',
+  [SwqosRegion.Default]: 'http://nyc-1.prod.lunar-lander.hellomoon.io',
+};
+
+export const LUNARLANDER_QUIC_ENDPOINTS: Record<SwqosRegion, string> = {
+  [SwqosRegion.NewYork]: 'nyc-1.prod.lunar-lander.hellomoon.io:16888',
+  [SwqosRegion.Frankfurt]: 'fra-1.prod.lunar-lander.hellomoon.io:16888',
+  [SwqosRegion.Amsterdam]: 'ams-1.prod.lunar-lander.hellomoon.io:16888',
+  [SwqosRegion.Dublin]: 'ams-1.prod.lunar-lander.hellomoon.io:16888',
+  [SwqosRegion.SLC]: 'ash-2.prod.lunar-lander.hellomoon.io:16888',
+  [SwqosRegion.Tokyo]: 'tyo-1.prod.lunar-lander.hellomoon.io:16888',
+  [SwqosRegion.Singapore]: 'tyo-1.prod.lunar-lander.hellomoon.io:16888',
+  [SwqosRegion.London]: 'fra-1.prod.lunar-lander.hellomoon.io:16888',
+  [SwqosRegion.LosAngeles]: 'nyc-1.prod.lunar-lander.hellomoon.io:16888',
+  [SwqosRegion.Default]: 'nyc-1.prod.lunar-lander.hellomoon.io:16888',
+};
+
+export const GLAIVE_ENDPOINTS: Record<SwqosRegion, string> = {
+  [SwqosRegion.NewYork]: 'http://ny.glaive.trade',
+  [SwqosRegion.Frankfurt]: 'http://fra.glaive.trade',
+  [SwqosRegion.Amsterdam]: 'http://ams1.glaive.trade',
+  [SwqosRegion.Dublin]: 'http://lon.glaive.trade',
+  [SwqosRegion.SLC]: 'http://ny.glaive.trade',
+  [SwqosRegion.Tokyo]: 'http://ams1.glaive.trade',
+  [SwqosRegion.Singapore]: 'http://fra.glaive.trade',
+  [SwqosRegion.London]: 'http://lon.glaive.trade',
+  [SwqosRegion.LosAngeles]: 'http://ny.glaive.trade',
+  [SwqosRegion.Default]: 'http://ams1.glaive.trade',
+};
+
+export const GLAIVE_QUIC_ENDPOINTS: Record<SwqosRegion, string> = {
+  [SwqosRegion.NewYork]: 'ny.glaive.trade:4000',
+  [SwqosRegion.Frankfurt]: 'fra.glaive.trade:4000',
+  [SwqosRegion.Amsterdam]: 'ams1.glaive.trade:4000',
+  [SwqosRegion.Dublin]: 'lon.glaive.trade:4000',
+  [SwqosRegion.SLC]: 'ny.glaive.trade:4000',
+  [SwqosRegion.Tokyo]: 'ams1.glaive.trade:4000',
+  [SwqosRegion.Singapore]: 'fra.glaive.trade:4000',
+  [SwqosRegion.London]: 'lon.glaive.trade:4000',
+  [SwqosRegion.LosAngeles]: 'ny.glaive.trade:4000',
+  [SwqosRegion.Default]: 'ams1.glaive.trade:4000',
+};
+
 // ===== SWQOS Client Interface =====
 
 export interface SwqosClient {
@@ -503,6 +580,17 @@ export interface SwqosClient {
 }
 
 // ===== HTTP Client Base =====
+
+/** Adapt a raw-byte SWQOS client to CachedTradeExecutor; never requests confirmation. */
+export function createCachedWireSubmit(client: SwqosClient) {
+  return async (wire: Uint8Array, direction: "Buy" | "Sell"): Promise<string> => {
+    if (direction !== "Buy" && direction !== "Sell") throw new TradeError(400, "Explicit Buy/Sell required");
+    const expected=signatureFromSerializedTransaction(wire);
+    const returned=await client.sendTransaction(direction === "Buy" ? TradeType.Buy : TradeType.Sell, Buffer.from(wire), false);
+    if(returned!==expected)throw new TradeError(400,"Submission signature does not match raw transaction");
+    return returned;
+  };
+}
 
 abstract class BaseClient implements SwqosClient {
   abstract getTipAccount(): string;
@@ -1925,11 +2013,33 @@ async function createP256ClientCertificate(
   return { private: privatePem, cert: cert.toString('pem') };
 }
 
-function signatureFromSerializedTransaction(raw: Buffer | Uint8Array): string {
-  const data = raw instanceof Buffer ? raw : Buffer.from(raw);
-  const signatureCount = data[0] ?? 0;
-  if (signatureCount !== 1 || data.length < 65) {
-    throw new TradeError(400, 'Only single-signature versioned transactions are supported for SWQOS submit');
+/** V1 is message-first with trailing signatures; legacy/v0 is signature-first. */
+export function signatureFromSerializedTransaction(raw: Buffer | Uint8Array): string {
+  const data = Buffer.from(raw);
+  if (data[0] === 129) {
+    const invalid = () => { throw new TradeError(400, 'Malformed or non-single-signature V1 transaction'); };
+    if (data.length < 106 || data.length > 4096 || data[1] !== 1) invalid();
+    const mask = data.readUInt32LE(4), count = data.readUInt8(41), instructions = data.readUInt8(40);
+    if ((mask & ~31) !== 0 || (mask & 3) === 1 || (mask & 3) === 2 || count < 1 || count > 64 || instructions > 64 || data.readUInt8(2) !== 0 || data.readUInt8(3) > count - 1) invalid();
+    let offset = 42 + count * 32 + ((mask & 3) ? 8 : 0) + ((mask & 4) ? 4 : 0) + ((mask & 8) ? 4 : 0) + ((mask & 16) ? 4 : 0);
+    const headers = offset;
+    offset += instructions * 4;
+    if (offset > data.length - 64) invalid();
+    const unique=new Set<string>();
+    for(let i=0;i<count;i++){const key=data.subarray(42+i*32,74+i*32).toString('hex');if(unique.has(key))invalid();unique.add(key);}
+    if(mask&16){const heap=data.readUInt32LE(headers-4);if(heap<32768||heap>262144||heap%1024)invalid();}
+    for (let i = 0; i < instructions; i++) {
+      const h = headers + i * 4, accounts = data.readUInt8(h + 1);
+      if (data.readUInt8(h) === 0 || data.readUInt8(h) >= count || offset + accounts > data.length - 64) invalid();
+      for (let j = 0; j < accounts; j++) if (data.readUInt8(offset + j) >= count) invalid();
+      offset += accounts + data.readUInt16LE(h + 2);
+      if (offset > data.length - 64) invalid();
+    }
+    if (offset !== data.length - 64) invalid();
+    return bs58.encode(data.subarray(offset, offset + 64));
+  }
+  if (data[0] !== 1 || data.length < 65) {
+    throw new TradeError(400, 'Only single-signature transactions are supported for SWQOS submit');
   }
   return bs58.encode(data.subarray(1, 65));
 }
@@ -2213,6 +2323,299 @@ export class SolamiClient implements SwqosClient {
   minTipSol(): number { return MIN_TIP_SOLAMI; }
 }
 
+function parseHostPort(endpoint: string, defaultPort: number): { host: string; port: number } {
+  if (/^https?:\/\//.test(endpoint)) {
+    return hostPortFromHttp(endpoint, defaultPort);
+  }
+  const lastColon = endpoint.lastIndexOf(':');
+  return {
+    host: lastColon >= 0 ? endpoint.slice(0, lastColon) : endpoint,
+    port: lastColon >= 0 ? parseInt(endpoint.slice(lastColon + 1), 10) : defaultPort,
+  };
+}
+
+function validateGlaiveUuid(apiKey: string): Uint8Array {
+  const trimmed = apiKey.trim();
+  const match = /^([0-9a-fA-F]{8})-([0-9a-fA-F]{4})-([0-9a-fA-F]{4})-([0-9a-fA-F]{4})-([0-9a-fA-F]{12})$/.exec(trimmed);
+  if (!match) {
+    throw new TradeError(400, 'Glaive API key must be a valid UUID v4');
+  }
+  const hex = match.slice(1).join('');
+  const bytes = new Uint8Array(16);
+  for (let i = 0; i < 16; i++) {
+    bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  }
+  if ((bytes[6]! >> 4) !== 4) {
+    throw new TradeError(400, 'Glaive API key must be a UUID v4');
+  }
+  return bytes;
+}
+
+export function buildGlaiveBinaryUrl(endpoint: string, apiKey: string, mevProtection: boolean): string {
+  const url = new URL(endpoint);
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new TradeError(400, 'Glaive HTTP endpoint must use http or https');
+  }
+  let path = url.pathname.replace(/\/$/, '');
+  if (!path.endsWith('/binary')) {
+    path = path === '' || path === '/' ? '/binary' : `${path}/binary`;
+  }
+  url.pathname = path;
+  url.searchParams.delete('api-key');
+  url.searchParams.delete('mev-protect');
+  url.searchParams.set('api-key', apiKey.trim());
+  if (mevProtection) {
+    url.searchParams.set('mev-protect', 'true');
+  }
+  return url.toString();
+}
+
+function buildGlaiveAuthFrame(apiKey: string, mevProtection: boolean): Uint8Array {
+  const uuidBytes = validateGlaiveUuid(apiKey);
+  const frame = new Uint8Array(17);
+  frame.set(uuidBytes, 0);
+  frame[16] = mevProtection ? 1 : 0;
+  return frame;
+}
+
+// ===== LunarLander Client =====
+
+export class LunarLanderClient extends BaseClient {
+  private tipAccounts = LUNARLANDER_TIP_ACCOUNTS;
+
+  constructor(
+    private rpcUrl: string,
+    private endpoint: string,
+    private authToken?: string
+  ) {
+    super();
+  }
+
+  async sendTransaction(
+    tradeType: TradeType,
+    transaction: Buffer,
+    waitConfirmation: boolean
+  ): Promise<string> {
+    const url = `${this.endpoint.replace(/\/$/, '')}/send-bin`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'x-api-key': this.authToken || '',
+      },
+      body: transaction,
+    });
+    if (!response.ok) {
+      throw new TradeError(response.status, `LunarLander sendTransaction failed: ${response.status}`);
+    }
+    await response.arrayBuffer();
+    return signatureFromSerializedTransaction(transaction);
+  }
+
+  getTipAccount(): string {
+    return randomChoice(this.tipAccounts);
+  }
+  getSwqosType(): SwqosType {
+    return SwqosType.LunarLander;
+  }
+  minTipSol(): number {
+    return MIN_TIP_LUNARLANDER;
+  }
+}
+
+export class LunarLanderQuicClient implements SwqosClient {
+  private readonly tipAccounts = LUNARLANDER_TIP_ACCOUNTS;
+  private readonly host: string;
+  private readonly port: number;
+
+  constructor(
+    private readonly rpcUrl: string,
+    endpoint: string,
+    private readonly apiKey: string,
+    private readonly mevProtection: boolean = false
+  ) {
+    const parsed = parseHostPort(endpoint, 16888);
+    this.host = parsed.host;
+    this.port = parsed.port;
+  }
+
+  async sendTransaction(
+    _tradeType: TradeType,
+    transaction: Buffer,
+    _waitConfirmation: boolean
+  ): Promise<string> {
+    if (transaction.length > 1232) {
+      throw new TradeError(400, `LunarLander QUIC transaction too large: ${transaction.length} > 1232`);
+    }
+    // Client-cert CN = API key; ALPN lunar-lander-tpu (Rust lunar_lander_quic_client parity).
+    await sendViaQUIC(this.host, this.port, this.host, new Uint8Array(transaction), {
+      alpn: 'lunar-lander-tpu',
+      commonName: this.apiKey,
+      algorithm: 'ecdsa',
+    });
+    return signatureFromSerializedTransaction(transaction);
+  }
+
+  async sendTransactions(
+    tradeType: TradeType,
+    transactions: Buffer[],
+    waitConfirmation: boolean
+  ): Promise<string[]> {
+    for (const tx of transactions) {
+      await this.sendTransaction(tradeType, tx, waitConfirmation);
+    }
+    return transactions.map((tx) => signatureFromSerializedTransaction(tx));
+  }
+
+  getTipAccount(): string {
+    return randomChoice(this.tipAccounts);
+  }
+  getSwqosType(): SwqosType {
+    return SwqosType.LunarLander;
+  }
+  minTipSol(): number {
+    return MIN_TIP_LUNARLANDER;
+  }
+}
+
+// ===== Glaive Client =====
+
+export class GlaiveClient extends BaseClient {
+  private tipAccounts = GLAIVE_TIP_ACCOUNTS;
+  private submitUrl: string;
+
+  constructor(
+    private rpcUrl: string,
+    endpoint: string,
+    apiKey: string,
+    mevProtection: boolean = false
+  ) {
+    super();
+    validateGlaiveUuid(apiKey);
+    this.submitUrl = buildGlaiveBinaryUrl(endpoint, apiKey, mevProtection);
+  }
+
+  async sendTransaction(
+    tradeType: TradeType,
+    transaction: Buffer,
+    waitConfirmation: boolean
+  ): Promise<string> {
+    const expected = signatureFromSerializedTransaction(transaction);
+    const response = await fetch(this.submitUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: transaction,
+    });
+    const text = await response.text();
+    let json: any;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      throw new TradeError(500, `Glaive returned HTTP ${response.status} with invalid JSON: ${text.slice(0, 512)}`);
+    }
+    if (json?.error) {
+      const message = json.error?.message || json.error || 'unknown Glaive error';
+      const code = json.error?.code;
+      throw new TradeError(
+        typeof code === 'number' ? code : 500,
+        typeof code === 'number'
+          ? `Glaive rejected transaction: code=${code} message=${message}`
+          : `Glaive rejected transaction: ${message}`
+      );
+    }
+    if (!response.ok) {
+      throw new TradeError(response.status, `Glaive returned HTTP ${response.status}: ${text.slice(0, 512)}`);
+    }
+    if (!json?.result || json.result !== expected) {
+      throw new TradeError(500, 'Glaive returned a signature that does not match the submitted transaction');
+    }
+    return expected;
+  }
+
+  getTipAccount(): string {
+    return randomChoice(this.tipAccounts);
+  }
+  getSwqosType(): SwqosType {
+    return SwqosType.Glaive;
+  }
+  minTipSol(): number {
+    return MIN_TIP_GLAIVE;
+  }
+}
+
+export class GlaiveQuicClient implements SwqosClient {
+  private readonly tipAccounts = GLAIVE_TIP_ACCOUNTS;
+  private readonly host: string;
+  private readonly port: number;
+  private readonly authFrame: Uint8Array;
+
+  constructor(
+    private readonly rpcUrl: string,
+    endpoint: string,
+    apiKey: string,
+    mevProtection: boolean = false
+  ) {
+    const parsed = parseHostPort(endpoint, 4000);
+    this.host = parsed.host;
+    this.port = parsed.port;
+    this.authFrame = buildGlaiveAuthFrame(apiKey, mevProtection);
+  }
+
+  async sendTransaction(
+    _tradeType: TradeType,
+    transaction: Buffer,
+    _waitConfirmation: boolean
+  ): Promise<string> {
+    if (transaction.length > 1232) {
+      throw new TradeError(400, `Glaive QUIC transaction too large: ${transaction.length} > 1232`);
+    }
+    await sendGlaiveViaQUIC(this.host, this.port, this.authFrame, new Uint8Array(transaction));
+    return signatureFromSerializedTransaction(transaction);
+  }
+
+  async sendTransactions(
+    tradeType: TradeType,
+    transactions: Buffer[],
+    waitConfirmation: boolean
+  ): Promise<string[]> {
+    for (const tx of transactions) {
+      await this.sendTransaction(tradeType, tx, waitConfirmation);
+    }
+    return transactions.map((tx) => signatureFromSerializedTransaction(tx));
+  }
+
+  getTipAccount(): string {
+    return randomChoice(this.tipAccounts);
+  }
+  getSwqosType(): SwqosType {
+    return SwqosType.Glaive;
+  }
+  minTipSol(): number {
+    return MIN_TIP_GLAIVE;
+  }
+}
+
+async function sendGlaiveViaQUIC(
+  host: string,
+  port: number,
+  authFrame: Uint8Array,
+  txBytes: Uint8Array
+): Promise<void> {
+  const client = await createMatrixQuicClient(host, port, 'glaive-intake', {
+    alpn: 'solana-tpu',
+  });
+  try {
+    const authStream = client.connection.newStream('uni');
+    const authWriter = authStream.writable.getWriter();
+    await authWriter.write(authFrame);
+    await authWriter.close();
+    await writeMatrixQuicStream(client, txBytes);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  } finally {
+    await client.destroy().catch(() => undefined);
+  }
+}
+
 // ===== Client Factory =====
 
 export interface SwqosClientConfig {
@@ -2231,7 +2634,7 @@ export class ClientFactory {
     if (isSwqosTypeBlacklisted(config.type)) {
       throw new TradeError(
         400,
-        `SWQOS type is blacklisted by Rust v4.0.21 parity: ${config.type}`
+        `SWQOS type is blacklisted by Rust v5.0.2 parity: ${config.type}`
       );
     }
     const region = config.region ?? SwqosRegion.Default;
@@ -2381,13 +2784,47 @@ export class ClientFactory {
         return new SolamiClient(rpcUrl, endpoint, config.apiKey);
       }
 
+      case SwqosType.LunarLander: {
+        if (config.transport === SwqosTransport.Grpc) {
+          throw new TradeError(400, 'LunarLander does not support the gRPC transport');
+        }
+        const useQuic = config.transport === undefined || config.transport === SwqosTransport.Quic;
+        if (useQuic) {
+          let endpoint = config.customUrl || LUNARLANDER_QUIC_ENDPOINTS[region];
+          if (config.customUrl && /^https?:\/\//.test(config.customUrl)) {
+            const parsed = hostPortFromHttp(config.customUrl, 16888);
+            endpoint = `${parsed.host}:${parsed.port}`;
+          }
+          return new LunarLanderQuicClient(rpcUrl, endpoint, config.apiKey || '', config.mevProtection ?? false);
+        }
+        const endpoint = config.customUrl || LUNARLANDER_ENDPOINTS[region];
+        return new LunarLanderClient(rpcUrl, endpoint, config.apiKey);
+      }
+
+      case SwqosType.Glaive: {
+        const transport = config.transport ?? SwqosTransport.Quic;
+        if (transport === SwqosTransport.Grpc) {
+          throw new TradeError(400, 'Glaive does not support the gRPC transport');
+        }
+        if (transport === SwqosTransport.Quic) {
+          let endpoint = config.customUrl || GLAIVE_QUIC_ENDPOINTS[region];
+          if (config.customUrl && /^https?:\/\//.test(config.customUrl)) {
+            const parsed = hostPortFromHttp(config.customUrl, 4000);
+            endpoint = `${parsed.host}:${parsed.port}`;
+          }
+          return new GlaiveQuicClient(rpcUrl, endpoint, config.apiKey || '', config.mevProtection ?? false);
+        }
+        const endpoint = config.customUrl || GLAIVE_ENDPOINTS[region];
+        return new GlaiveClient(rpcUrl, endpoint, config.apiKey || '', config.mevProtection ?? false);
+      }
+
       case SwqosType.Default:
         return new DefaultClient(rpcUrl);
 
       default:
         throw new TradeError(
           400,
-          `Unsupported SWQOS type for Rust v4.0.21 trading path: ${config.type}`
+          `Unsupported SWQOS type for Rust v5.0.2 trading path: ${config.type}`
         );
     }
   }

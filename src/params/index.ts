@@ -5,15 +5,23 @@
 import { PublicKey, Connection } from '@solana/web3.js';
 import {
   TOKEN_PROGRAM,
+  PUMPFUN_PROGRAM,
   TOKEN_PROGRAM_2022,
   WSOL_TOKEN_ACCOUNT,
   USD1_TOKEN_ACCOUNT,
   BONK_PROGRAM,
+  SOL_TOKEN_ACCOUNT,
+  USDC_TOKEN_ACCOUNT,
 } from '../constants';
 import {
+  reconcileMayhemModeForTrade,
   getBondingCurvePda,
   getCreatorVaultPda,
+  getPumpFunFeeSharingConfigPda,
+  PUMPFUN_GLOBAL_ACCOUNT,
+  PUMPFUN_FEE_PROGRAM,
 } from '../instruction/pumpfun_builder';
+import {decodePumpFunGlobalFeeRecipient,decodePumpFunSharingCreatorVault} from '../trading/cached_pumpfun_config';
 import {
   findByMint as findPumpSwapPoolByMint,
   fetchPool as fetchPumpSwapPool,
@@ -76,12 +84,20 @@ export interface BondingCurveAccount {
   creator: PublicKey;
   isMayhemMode: boolean;
   isCashbackCoin: boolean;
+  quoteMint?: PublicKey;
 }
 
-function decodePumpFunBondingCurveData(
+export function decodePumpFunBondingCurveData(
   data: Buffer,
   bondingCurveAddr: PublicKey
 ): BondingCurveAccount {
+  const discriminator = Buffer.from([23, 183, 248, 55, 96, 216, 172, 96]);
+  if (data.length < 83 || (data.length > 83 && data.length < 115) || !data.subarray(0, 8).equals(discriminator)) {
+    throw new Error('Invalid PumpFun bonding curve account layout');
+  }
+  for (const index of [48, 81, 82]) {
+    if (data[index]! > 1) throw new Error('Invalid PumpFun bonding curve boolean');
+  }
   let offset = 8;
   const virtualTokenReserves = data.readBigUInt64LE(offset);
   offset += 8;
@@ -100,6 +116,7 @@ function decodePumpFunBondingCurveData(
   const isMayhemMode = data.readUInt8(offset) === 1;
   offset += 1;
   const isCashbackCoin = data.readUInt8(offset) === 1;
+  const quoteMint = data.length >= 115 ? new PublicKey(data.subarray(83, 115)) : WSOL_TOKEN_ACCOUNT;
   return {
     discriminator: 0,
     account: bondingCurveAddr,
@@ -112,6 +129,7 @@ function decodePumpFunBondingCurveData(
     creator,
     isMayhemMode,
     isCashbackCoin,
+    quoteMint,
   };
 }
 
@@ -121,7 +139,11 @@ export class PumpFunParams {
     public associatedBondingCurve: PublicKey,
     public creatorVault: PublicKey,
     public tokenProgram: PublicKey,
-    public closeTokenAccountWhenSell?: boolean
+    public closeTokenAccountWhenSell?: boolean,
+    public feeRecipient: PublicKey = PublicKey.default,
+    public quoteMint: PublicKey = PublicKey.default,
+    public observedTradeCreator?: PublicKey,
+    public feeSharingCreatorVaultIfActive?: PublicKey
   ) {}
 
   static immediateSell(
@@ -164,26 +186,32 @@ export class PumpFunParams {
     feeRecipient: PublicKey;
     tokenProgram: PublicKey;
     isCashbackCoin: boolean;
+    quoteMint?: PublicKey;
+    mayhemMode?: boolean;
   }): PumpFunParams {
-    const isMayhemMode = false;
+    const isMayhemMode = reconcileMayhemModeForTrade(params.mayhemMode, params.feeRecipient);
     return new PumpFunParams(
       {
         discriminator: 0,
-        account: params.bondingCurve,
+        account: params.bondingCurve.equals(PublicKey.default) ? getBondingCurvePda(params.mint) : params.bondingCurve,
         virtualTokenReserves: params.virtualTokenReserves,
         virtualSolReserves: params.virtualSolReserves,
         realTokenReserves: params.realTokenReserves,
         realSolReserves: params.realSolReserves,
-        tokenTotalSupply: BigInt(0),
+        tokenTotalSupply: 1_000_000_000_000_000n,
         complete: false,
         creator: params.creator,
         isMayhemMode,
         isCashbackCoin: params.isCashbackCoin,
+        quoteMint: params.quoteMint ?? WSOL_TOKEN_ACCOUNT,
       },
       params.associatedBondingCurve,
       params.creatorVault,
       params.tokenProgram,
-      params.closeTokenAccountWhenSell
+      params.closeTokenAccountWhenSell,
+      params.feeRecipient,
+      params.quoteMint ?? PublicKey.default,
+      params.creator.equals(PublicKey.default) ? undefined : params.creator
     );
   }
 
@@ -196,24 +224,57 @@ export class PumpFunParams {
     if (!accountInfo?.data?.length) {
       throw new Error('Bonding curve account not found');
     }
+    if (!accountInfo.owner.equals(PUMPFUN_PROGRAM)) throw new Error('Invalid PumpFun bonding curve account owner');
     const bondingCurve = decodePumpFunBondingCurveData(
       accountInfo.data,
       bondingCurveAddr
     );
     const mintAccount = await connection.getAccountInfo(mint);
-    const tokenProgram = mintAccount?.owner ?? TOKEN_PROGRAM;
+    if (!mintAccount || mintAccount.data.length < 82 || mintAccount.data[45] !== 1 || (!mintAccount.owner.equals(TOKEN_PROGRAM) && !mintAccount.owner.equals(TOKEN_PROGRAM_2022))) {
+      throw new Error('Invalid or missing PumpFun mint account');
+    }
+    const tokenProgram = mintAccount.owner;
     const associatedBondingCurve = getPumpSwapAta(
       bondingCurveAddr,
       mint,
       tokenProgram
     );
-    const creatorVault = getCreatorVaultPda(bondingCurve.creator);
+    const [global,sharing] = await Promise.all([
+      connection.getAccountInfo(PUMPFUN_GLOBAL_ACCOUNT),
+      connection.getAccountInfo(getPumpFunFeeSharingConfigPda(mint)),
+    ]);
+    if (!global || !global.owner.equals(PUMPFUN_PROGRAM)) throw new Error('Invalid or missing PumpFun Global account');
+    const feeRecipient = decodePumpFunGlobalFeeRecipient(global.data);
+    // Explicit cold lookup can prove absence. Cached preparation cannot.
+    let feeSharingCreatorVaultIfActive: PublicKey | undefined;
+    if (sharing?.owner.equals(PUMPFUN_FEE_PROGRAM)) {
+      try { feeSharingCreatorVaultIfActive = decodePumpFunSharingCreatorVault(sharing.data,mint); }
+      catch { /* Rust cold helper treats invalid optional SharingConfig as inactive. */ }
+    }
+    const creatorVault = feeSharingCreatorVaultIfActive ?? getCreatorVaultPda(bondingCurve.creator);
     return new PumpFunParams(
       bondingCurve,
       associatedBondingCurve,
       creatorVault,
-      tokenProgram
+      tokenProgram,
+      undefined,
+      feeRecipient,
+      bondingCurve.quoteMint,
+      undefined,
+      feeSharingCreatorVaultIfActive
     );
+  }
+
+  withQuoteMint(mint: PublicKey): PumpFunParams {
+    const normalized = mint.equals(PublicKey.default) || mint.equals(SOL_TOKEN_ACCOUNT) ? WSOL_TOKEN_ACCOUNT : mint;
+    const oldInitial = this.bondingCurve.quoteMint?.equals(USDC_TOKEN_ACCOUNT) ? 4_292_000_000n : 30_000_000_000n;
+    const nextInitial = normalized.equals(USDC_TOKEN_ACCOUNT) ? 4_292_000_000n : 30_000_000_000n;
+    const max = (1n << 64n) - 1n;
+    const add = (a: bigint, b: bigint) => a + b > max ? max : a + b;
+    if (this.bondingCurve.virtualSolReserves === add(oldInitial, this.bondingCurve.realSolReserves)) this.bondingCurve.virtualSolReserves = add(nextInitial, this.bondingCurve.realSolReserves);
+    this.bondingCurve.quoteMint = normalized;
+    this.quoteMint = mint.equals(PublicKey.default) || mint.equals(SOL_TOKEN_ACCOUNT) ? PublicKey.default : mint;
+    return this;
   }
 
   withCreatorVault(vault: PublicKey): PumpFunParams {
@@ -493,7 +554,9 @@ export class RaydiumAmmV4Params {
     public serumPcVaultAccount: PublicKey,
     public serumVaultSigner: PublicKey,
     public coinReserve: bigint,
-    public pcReserve: bigint
+    public pcReserve: bigint,
+    public swapFeeNumerator:bigint=25n,
+    public swapFeeDenominator:bigint=10000n
   ) {}
 
   static async fromAmmAddressByRpc(
@@ -515,8 +578,9 @@ export class RaydiumAmmV4Params {
     );
     const coinBal = await connection.getTokenAccountBalance(ammInfo.tokenCoin);
     const pcBal = await connection.getTokenAccountBalance(ammInfo.tokenPc);
-    const coinReserve = BigInt(coinBal.value.amount);
-    const pcReserve = BigInt(pcBal.value.amount);
+    const coinReserve = BigInt(coinBal.value.amount)-ammInfo.output.needTakePnlCoin;
+    const pcReserve = BigInt(pcBal.value.amount)-ammInfo.output.needTakePnlPc;
+    if (coinReserve <= 0n || pcReserve <= 0n) throw new Error("AMM v4 vault reserves do not cover pending PnL");
     return new RaydiumAmmV4Params(
       amm,
       ammInfo.coinMint,
@@ -534,7 +598,9 @@ export class RaydiumAmmV4Params {
       marketState.serumPcVaultAccount,
       serumVaultSigner,
       coinReserve,
-      pcReserve
+      pcReserve,
+      ammInfo.fees.swapFeeNumerator,
+      ammInfo.fees.swapFeeDenominator
     );
   }
 }

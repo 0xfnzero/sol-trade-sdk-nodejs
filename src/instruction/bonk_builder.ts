@@ -33,7 +33,7 @@ export const BONK_PROGRAM_ID = new PublicKey(
 
 /** Bonk Authority */
 export const BONK_AUTHORITY = new PublicKey(
-  "WLhv2UAZm6z4KyaaELi5pjdbJh6RESMva1Rnn8pJVVh"
+  "WLHv2UAZm6z4KyaaELi5pjdbJh6RESMva1Rnn8pJVVh"
 );
 
 /** Bonk Global Config */
@@ -187,7 +187,12 @@ export interface BonkBuildSellParams {
 // Helper Functions
 // ============================================
 
-function getAmountOut(
+function clampSlippageBps(slippageBps: bigint): bigint {
+  return slippageBps > BigInt(9999) ? BigInt(9999) : slippageBps;
+}
+
+/** Buy path: fees on SOL input, then constant-product, then slippage. */
+function getBuyTokenAmountFromSolAmount(
   amountIn: bigint,
   protocolFeeRate: bigint,
   platformFeeRate: bigint,
@@ -198,19 +203,47 @@ function getAmountOut(
   realQuote: bigint,
   slippageBps: bigint,
 ): bigint {
+  const bps = clampSlippageBps(slippageBps);
   const protocolFee = (amountIn * protocolFeeRate) / BigInt(10000);
   const platformFee = (amountIn * platformFeeRate) / BigInt(10000);
   const shareFee = (amountIn * shareFeeRate) / BigInt(10000);
   const amountInNet = amountIn - protocolFee - platformFee - shareFee;
-  
+
   const inputReserve = virtualQuote + realQuote;
   const outputReserve = virtualBase - realBase;
   const numerator = amountInNet * outputReserve;
   const denominator = inputReserve + amountInNet;
   let amountOut = numerator / denominator;
-  
-  amountOut = amountOut - (amountOut * slippageBps) / BigInt(10000);
+
+  amountOut = amountOut - (amountOut * bps) / BigInt(10000);
   return amountOut;
+}
+
+/** Sell path: constant-product first, fees on SOL output, then slippage. */
+function getSellSolAmountFromTokenAmount(
+  amountIn: bigint,
+  protocolFeeRate: bigint,
+  platformFeeRate: bigint,
+  shareFeeRate: bigint,
+  virtualBase: bigint,
+  virtualQuote: bigint,
+  realBase: bigint,
+  realQuote: bigint,
+  slippageBps: bigint,
+): bigint {
+  const bps = clampSlippageBps(slippageBps);
+  const inputReserve = virtualBase - realBase;
+  const outputReserve = virtualQuote + realQuote;
+  const numerator = amountIn * outputReserve;
+  const denominator = inputReserve + amountIn;
+  const solAmountOut = numerator / denominator;
+
+  const protocolFee = (solAmountOut * protocolFeeRate) / BigInt(10000);
+  const platformFee = (solAmountOut * platformFeeRate) / BigInt(10000);
+  const shareFee = (solAmountOut * shareFeeRate) / BigInt(10000);
+  const solAmountNet = solAmountOut - protocolFee - platformFee - shareFee;
+
+  return solAmountNet - (solAmountNet * bps) / BigInt(10000);
 }
 
 // ============================================
@@ -253,8 +286,8 @@ export function buildBonkBuyInstructions(
 
   const globalConfig = isUsd1Pool ? BONK_USD1_GLOBAL_CONFIG : BONK_GLOBAL_CONFIG;
 
-  // Calculate minimum output
-  const minimumAmountOut = fixedOutputAmount ?? getAmountOut(
+  // Calculate minimum output (buy: SOL -> token)
+  const minimumAmountOut = fixedOutputAmount ?? getBuyTokenAmountFromSolAmount(
     inputAmount,
     BONK_PROTOCOL_FEE_RATE,
     BONK_PLATFORM_FEE_RATE,
@@ -403,8 +436,8 @@ export function buildBonkSellInstructions(
 
   const globalConfig = isUsd1Pool ? BONK_USD1_GLOBAL_CONFIG : BONK_GLOBAL_CONFIG;
 
-  // Calculate minimum output
-  const minimumAmountOut = fixedOutputAmount ?? getAmountOut(
+  // Calculate minimum output (sell: token -> SOL)
+  const minimumAmountOut = fixedOutputAmount ?? getSellSolAmountFromTokenAmount(
     inputAmount,
     BONK_PROTOCOL_FEE_RATE,
     BONK_PLATFORM_FEE_RATE,

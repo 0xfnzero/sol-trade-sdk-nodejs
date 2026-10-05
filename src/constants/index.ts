@@ -33,11 +33,17 @@ export const RAYDIUM_AMM_V4_PROGRAM = new PublicKey('675kPX9MHTjS2zt1qfr1NYHuzeL
 export const METEORA_DAMM_V2_PROGRAM = new PublicKey('cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG');
 
 // Fee recipients (generic SDK defaults)
-export const SDK_FEE_RECIPIENT = new PublicKey('CebN5WGQ4jvEPvsVU4EoHEpgzq1VV7AbicfhtW4Cs9tM');
+export const SDK_FEE_RECIPIENT = new PublicKey('62qc2CNXwrYqQScmEdiZFFAnJR262PxWEuNQtxfafNgV');
 
 export const SDK_MAYHEM_FEE_RECIPIENTS: PublicKey[] = [
-  new PublicKey('7VtWHe8WJeU9Sy5j1XF5n8qPzDtJjWxMgYVtJ89AQrVj'),
-  new PublicKey('82jN8eGgPvMSW1KP9W6GdW4bQ3YbB7sGgC6BhZnLVQvR'),
+  new PublicKey('GesfTA3X2arioaHp8bbKdjG9vJtskViWACZoYvxp4twS'),
+  new PublicKey('4budycTjhs9fD6xw62VBducVTNgMgJJ5BgtKq7mAZwn6'),
+  new PublicKey('8SBKzEQU4nLSzcwF4a74F2iaUDQyTfjGndn6qUWBnrpR'),
+  new PublicKey('4UQeTP1T39KZ9Sfxzo3WR5skgsaP6NZa87BAkuazLEKH'),
+  new PublicKey('8sNeir4QsLsJdYpc9RZacohhK1Y5FLU3nC5LXgYB4aa6'),
+  new PublicKey('Fh9HmeLNUMVCvejxCtCL2DbYaRyBFVJ5xrWkLnMH6fdk'),
+  new PublicKey('463MEnMeGyJekNZFQSTUABBEbLnvMTALbT6ZmsxAbAdq'),
+  new PublicKey('6AUH3WEHucYZyC61hqpqYUWVto5qA5hjHuNQ32GNnNxA'),
 ];
 
 // Instruction discriminators — aligned with `instruction/pumpfun_builder` / Rust
@@ -49,9 +55,11 @@ export const PUMPFUN_DISCRIMINATORS = {
 };
 
 export const PUMPSWAP_DISCRIMINATORS = {
-  SWAP: Buffer.from([43, 4, 237, 11, 26, 201, 30, 98]),
-  DEPOSIT: Buffer.from([242, 35, 198, 137, 82, 225, 242, 178]),
-  WITHDRAW: Buffer.from([183, 18, 178, 128, 70, 157, 46, 34]),
+  BUY: Buffer.from([102, 6, 61, 18, 1, 218, 235, 234]),
+  BUY_EXACT_QUOTE_IN: Buffer.from([198, 46, 21, 82, 180, 217, 232, 112]),
+  SELL: Buffer.from([51, 230, 133, 164, 1, 127, 131, 173]),
+  DEPOSIT: Buffer.from([242, 35, 198, 137, 82, 225, 242, 182]),
+  WITHDRAW: Buffer.from([183, 18, 70, 156, 148, 109, 161, 34]),
 };
 
 // Default values

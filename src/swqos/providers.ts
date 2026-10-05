@@ -1,6 +1,6 @@
 /**
  * SWQOS Providers for Sol Trade SDK
- * Implements Rust v4.0.21 SWQOS providers plus legacy extended RPC provider
+ * Implements Rust v5.0.2 SWQOS providers plus legacy extended RPC provider
  * classes kept for source compatibility.
  */
 
@@ -40,15 +40,17 @@ export enum SwqosType {
   Speedlanding = 'Speedlanding',
   Helius = 'Helius',
   Solami = 'Solami',
-  /** Legacy extended RPC class, not part of Rust v4.0.21 SWQOS parity. */
+  LunarLander = 'LunarLander',
+  Glaive = 'Glaive',
+  /** Legacy extended RPC class, not part of Rust v5.0.2 SWQOS parity. */
   Triton = 'Triton',
-  /** Legacy extended RPC class, not part of Rust v4.0.21 SWQOS parity. */
+  /** Legacy extended RPC class, not part of Rust v5.0.2 SWQOS parity. */
   QuickNode = 'QuickNode',
-  /** Legacy extended RPC class, not part of Rust v4.0.21 SWQOS parity. */
+  /** Legacy extended RPC class, not part of Rust v5.0.2 SWQOS parity. */
   Syndica = 'Syndica',
-  /** Legacy extended RPC class, not part of Rust v4.0.21 SWQOS parity. */
+  /** Legacy extended RPC class, not part of Rust v5.0.2 SWQOS parity. */
   Figment = 'Figment',
-  /** Legacy extended RPC class, not part of Rust v4.0.21 SWQOS parity. */
+  /** Legacy extended RPC class, not part of Rust v5.0.2 SWQOS parity. */
   Alchemy = 'Alchemy',
   Default = 'Default',
 }
@@ -1080,7 +1082,7 @@ export class SpeedlandingClient extends SwqosClient {
 }
 
 /**
- * Solami SWQOS client - Rust v4.0.21 parity provider
+ * Solami SWQOS client - Rust v5.0.2 parity provider
  */
 export class SolamiClient extends SwqosClient {
   private endpoint: string;
@@ -1533,6 +1535,8 @@ export class SwqosClientFactory {
     [SwqosType.Speedlanding]: SpeedlandingClient,
     [SwqosType.Helius]: SenderBackedProviderClient,
     [SwqosType.Solami]: SolamiClient,
+    [SwqosType.LunarLander]: SenderBackedProviderClient,
+    [SwqosType.Glaive]: SenderBackedProviderClient,
     [SwqosType.Default]: DefaultClient as any,
   };
 
@@ -1543,7 +1547,7 @@ export class SwqosClientFactory {
     if (isSwqosTypeBlacklisted(config.swqosType as any)) {
       throw new TradeError(
         400,
-        `SWQOS type is blacklisted by Rust v4.0.21 parity: ${config.swqosType}`
+        `SWQOS type is blacklisted by Rust v5.0.2 parity: ${config.swqosType}`
       );
     }
     const ClientClass = this.CLIENT_MAP[config.swqosType];

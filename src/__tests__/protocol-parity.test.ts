@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { CONSTANTS } from '../index';
 import { PumpSwapParams as RpcPumpSwapParams } from '../params';
 import {
-  RAYDIUM_AMM_V4_SWAP_BASE_OUT_DISCRIMINATOR,
+  RAYDIUM_AMM_V4_SWAP_BASE_OUT_V2_DISCRIMINATOR,
   buildRaydiumAmmV4BuyInstructions,
 } from '../instruction/raydium_amm_v4_builder';
 import {
@@ -85,7 +85,7 @@ function pumpSwapProtocolParams(overrides: Partial<PumpSwapParams> = {}): PumpSw
 }
 
 function feeConfigBytes(): Buffer {
-  const chunks: Buffer[] = [Buffer.alloc(8), Buffer.from([1]), pk(55).toBuffer()];
+  const chunks: Buffer[] = [Buffer.from([143,52,146,187,219,123,76,155]), Buffer.from([1]), pk(55).toBuffer()];
   const pushU64 = (value: bigint) => {
     const buf = Buffer.alloc(8);
     buf.writeBigUInt64LE(value);
@@ -239,7 +239,7 @@ describe('protocol instruction parity', () => {
     expect(ix.data.readBigUInt64LE(16)).toBe(42n);
   });
 
-  it('builds Raydium AMM V4 with the IDL market account order', () => {
+  it('builds Raydium AMM V4 V2 without market accounts', () => {
     const ixs = buildRaydiumAmmV4BuyInstructions({
       payer: pk(99),
       outputMint: pk(2),
@@ -269,12 +269,11 @@ describe('protocol instruction parity', () => {
     });
     const ix = ixs.at(-1)!;
 
-    expect(ix.keys).toHaveLength(18);
-    expect(ix.data[0]).toBe(RAYDIUM_AMM_V4_SWAP_BASE_OUT_DISCRIMINATOR[0]);
-    expect(ix.keys[3]!.pubkey.toBase58()).toBe(pk(5).toBase58());
-    expect(ix.keys[4]!.pubkey.toBase58()).toBe(pk(6).toBase58());
-    expect(ix.keys[7]!.pubkey.toBase58()).toBe(pk(7).toBase58());
-    expect(ix.keys[14]!.pubkey.toBase58()).toBe(pk(14).toBase58());
+    expect(ix.keys).toHaveLength(8);
+    expect(ix.data[0]).toBe(RAYDIUM_AMM_V4_SWAP_BASE_OUT_V2_DISCRIMINATOR[0]);
+    expect(ix.keys[3]!.pubkey.toBase58()).toBe(pk(3).toBase58());
+    expect(ix.keys[4]!.pubkey.toBase58()).toBe(pk(4).toBase58());
+    expect(ix.keys[7]!).toMatchObject({pubkey:pk(99),isSigner:true,isWritable:false});
   });
 
   it('rejects Raydium AMM V4 buy output mint mismatches before building', () => {
@@ -330,10 +329,10 @@ describe('protocol instruction parity', () => {
     });
     const ix = ixs.at(-1)!;
 
-    expect(ix.keys).toHaveLength(13);
+    expect(ix.keys).toHaveLength(14);
     expect([...ix.data.subarray(0, 8)]).toEqual([...METEORA_DAMM_V2_SWAP2_DISCRIMINATOR]);
     expect(ix.data[24]).toBe(METEORA_DAMM_V2_SWAP_MODE_PARTIAL_FILL);
-    expect(ix.keys[12]!.pubkey.toBase58()).toBe(METEORA_DAMM_V2_PROGRAM_ID.toBase58());
+    expect(ix.keys[13]!.pubkey.toBase58()).toBe(METEORA_DAMM_V2_PROGRAM_ID.toBase58());
   });
 
   it('normalizes SOL input aliases to WSOL for Meteora DAMM V2', () => {
@@ -380,7 +379,7 @@ describe('protocol instruction parity', () => {
   it('uses buy_v2 for PumpFun V2 fixed-output buys', () => {
     const ixs = buildPumpFunBuyInstructions({
       payer: pk(99),
-      inputMint: CONSTANTS.SOL_TOKEN_ACCOUNT,
+      inputMint: CONSTANTS.WSOL_TOKEN_ACCOUNT,
       outputMint: pk(2),
       inputAmount: 100_000n,
       fixedOutputAmount: 42n,
@@ -640,7 +639,7 @@ describe('protocol instruction parity', () => {
   it('wraps the max quote budget for regular PumpFun V2 WSOL buys', () => {
     const ixs = buildPumpFunBuyInstructions({
       payer: pk(99),
-      inputMint: CONSTANTS.SOL_TOKEN_ACCOUNT,
+      inputMint: CONSTANTS.WSOL_TOKEN_ACCOUNT,
       outputMint: pk(2),
       inputAmount: 100_000n,
       slippageBasisPoints: 1000n,

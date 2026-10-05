@@ -1,3 +1,4 @@
+import {pumpFunBuyExact,pumpFunSellExact} from "../calc/pumpfun_exact";
 /**
  * Utility functions for Sol Trade SDK
  */
@@ -45,12 +46,8 @@ export function getBuyTokenAmountFromSolAmount(
   _creatorFee: number,
   solAmount: bigint
 ): bigint {
-  // Simplified calculation - full implementation requires proper bonding curve math
-  const k = virtualTokenReserves * virtualSolReserves;
-  const newSolReserves = virtualSolReserves + solAmount;
-  const newTokenReserves = k / newSolReserves;
-  const tokensOut = virtualTokenReserves - newTokenReserves;
-  return tokensOut;
+  if(!Number.isSafeInteger(_creatorFee)||_creatorFee<0)throw Error("Invalid creator fee bps");
+  return pumpFunBuyExact(virtualTokenReserves,virtualSolReserves,_realTokenReserves,solAmount,95n+BigInt(_creatorFee));
 }
 
 /**
@@ -62,12 +59,8 @@ export function getSellSolAmountFromTokenAmount(
   _creatorFee: number,
   tokenAmount: bigint
 ): bigint {
-  // Simplified calculation
-  const k = virtualTokenReserves * virtualSolReserves;
-  const newTokenReserves = virtualTokenReserves + tokenAmount;
-  const newSolReserves = k / newTokenReserves;
-  const solOut = virtualSolReserves - newSolReserves;
-  return solOut;
+  if(!Number.isSafeInteger(_creatorFee)||_creatorFee<0)throw Error("Invalid creator fee bps");
+  return pumpFunSellExact(virtualTokenReserves,virtualSolReserves,tokenAmount,95n+BigInt(_creatorFee));
 }
 
 /**

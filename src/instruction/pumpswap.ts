@@ -363,6 +363,8 @@ export interface PumpSwapParams {
   coinCreator?: PublicKey;
   cashbackFeeBasisPoints?: bigint;
   feeBasisPoints?: PumpSwapFeeBasisPoints;
+  /** Explicit recipient from validated GlobalConfig; mayhem keeps its own recipient set. */
+  protocolFeeRecipientOverride?: PublicKey;
 }
 
 export interface BuildBuyParams {
@@ -472,7 +474,12 @@ export function buildBuyInstructions(params: BuildBuyParams): TransactionInstruc
   let tokenAmount: bigint;
   let solAmount: bigint;
 
-  if (quoteIsWsolOrUsdc) {
+  if (fixedOutputAmount !== undefined) {
+    if (!quoteIsWsolOrUsdc) throw new Error('PumpSwap exact-output buy is unsupported when the pool requires a sell instruction');
+    if (typeof fixedOutputAmount !== 'bigint' || fixedOutputAmount < 0n || fixedOutputAmount >= poolBaseTokenReserves) throw new Error('Exact base output must be below the pool base reserve');
+    tokenAmount = fixedOutputAmount;
+    solAmount = inputAmount;
+  } else if (quoteIsWsolOrUsdc) {
     // Buying base with quote (WSOL/USDC)
     const result = buyQuoteInputInternalWithFees(
       inputAmount,
@@ -497,17 +504,13 @@ export function buildBuyInstructions(params: BuildBuyParams): TransactionInstruc
     solAmount = inputAmount;
   }
 
-  // Override token amount if fixed output is specified
-  if (fixedOutputAmount !== undefined) {
-    tokenAmount = fixedOutputAmount;
-  }
 
   // Get user token accounts
   const userBaseTokenAccount = getAssociatedTokenAddress(payer, baseMint, baseTokenProgram);
   const userQuoteTokenAccount = getAssociatedTokenAddress(payer, quoteMint, quoteTokenProgram);
 
   // Determine fee recipient
-  const feeRecipient = isMayhemMode ? getMayhemFeeRecipientRandom() : getPumpSwapProtocolFeeRecipientRandom();
+  const feeRecipient = isMayhemMode ? getMayhemFeeRecipientRandom() : (protocolParams.protocolFeeRecipientOverride ?? getPumpSwapProtocolFeeRecipientRandom());
   const feeRecipientAta = getFeeRecipientAta(feeRecipient, quoteMint, quoteTokenProgram);
 
   // Build instructions
@@ -689,7 +692,12 @@ export function buildSellInstructions(params: BuildSellParams): TransactionInstr
   let tokenAmount: bigint;
   let solAmount: bigint;
 
-  if (quoteIsWsolOrUsdc) {
+  if (fixedOutputAmount !== undefined) {
+    if (quoteIsWsolOrUsdc) throw new Error('PumpSwap exact-output sell is unsupported when the pool requires a sell instruction');
+    if (typeof fixedOutputAmount !== 'bigint' || fixedOutputAmount < 0n || fixedOutputAmount >= poolBaseTokenReserves) throw new Error('Exact base output must be below the pool base reserve');
+    tokenAmount = inputAmount;
+    solAmount = fixedOutputAmount;
+  } else if (quoteIsWsolOrUsdc) {
     // Selling base for quote (WSOL/USDC)
     tokenAmount = inputAmount;
     const result = sellBaseInputInternalWithFees(
@@ -714,17 +722,12 @@ export function buildSellInstructions(params: BuildSellParams): TransactionInstr
     solAmount = result.base;
   }
 
-  // Override sol amount if fixed output is specified
-  if (fixedOutputAmount !== undefined) {
-    solAmount = fixedOutputAmount;
-  }
-
   // Get user token accounts
   const userBaseTokenAccount = getAssociatedTokenAddress(payer, baseMint, baseTokenProgram);
   const userQuoteTokenAccount = getAssociatedTokenAddress(payer, quoteMint, quoteTokenProgram);
 
   // Determine fee recipient
-  const feeRecipient = isMayhemMode ? getMayhemFeeRecipientRandom() : getPumpSwapProtocolFeeRecipientRandom();
+  const feeRecipient = isMayhemMode ? getMayhemFeeRecipientRandom() : (protocolParams.protocolFeeRecipientOverride ?? getPumpSwapProtocolFeeRecipientRandom());
   const feeRecipientAta = getFeeRecipientAta(feeRecipient, quoteMint, quoteTokenProgram);
 
   // Build instructions
@@ -925,6 +928,11 @@ export function decodePool(data: Buffer): PumpSwapPool | null {
     }
     data = data.subarray(8);
   }
+  return decodePoolPayload(data);
+}
+
+/** Explicit payload decoder avoids guessing reserved payload bytes as an account header. */
+export function decodePoolPayload(data: Buffer): PumpSwapPool | null {
   if (data.length < POOL_SIZE && data.length !== LEGACY_POOL_SIZE) {
     return null;
   }
@@ -1087,6 +1095,7 @@ function decodeFeeTiers(data: Buffer, offset: number): { tiers: PumpSwapFeeTier[
 }
 
 export function decodeFeeConfig(data: Buffer): PumpSwapFeeConfig | null {
+  if(data.length<8 || !data.subarray(0,8).equals(Buffer.from([143,52,146,187,219,123,76,155])))return null;
   try {
     let offset = 8; // discriminator
     offset += 1; // bump

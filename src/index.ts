@@ -1,3 +1,7 @@
+import {reconcileMayhemModeForTrade} from "./instruction/pumpfun_builder";
+import {BondingCurveAccount as NativeBondingCurveAccount} from './common/bonding_curve';
+import type {Signer} from "@solana/web3.js";
+import {prepareCachedTrade as prepareNativeCachedTrade,CachedTradeExecutor as NativeCachedTradeExecutor,type CachedTradeRequest as NativeCachedTradeRequest} from "./trading/cached_trade";
 /**
  * Sol Trade SDK - TypeScript SDK for Solana DEX trading
  * 
@@ -31,6 +35,7 @@ import {
 } from './common/gas-fee-strategy';
 import { CONSTANTS as SDK_CONSTANTS } from './constants';
 import {
+  getBondingCurvePda,
   buildPumpFunBuyInstructions,
   buildPumpFunSellInstructions,
   buildPumpFunClaimCashbackInstruction,
@@ -79,6 +84,11 @@ export enum DexType {
   PumpFun = 'PumpFun',
   PumpSwap = 'PumpSwap',
   Bonk = 'Bonk',
+  LaunchLab = 'LaunchLab',
+  StonkFun = 'StonkFun',
+  RaydiumClmm = 'RaydiumClmm',
+  OrcaWhirlpool = 'OrcaWhirlpool',
+  MeteoraDlmm = 'MeteoraDlmm',
   RaydiumCpmm = 'RaydiumCpmm',
   RaydiumAmmV4 = 'RaydiumAmmV4',
   MeteoraDammV2 = 'MeteoraDammV2',
@@ -182,6 +192,8 @@ export enum SwqosType {
   Soyas = 'Soyas',
   Speedlanding = 'Speedlanding',
   Solami = 'Solami',
+  LunarLander = 'LunarLander',
+  Glaive = 'Glaive',
   Triton = 'Triton',
   QuickNode = 'QuickNode',
   Syndica = 'Syndica',
@@ -223,6 +235,14 @@ const SWQOS_BLACKLISTED_TYPES = new Set<SwqosType>([
 
 export function isSwqosTypeBlacklisted(type: SwqosType): boolean {
   return SWQOS_BLACKLISTED_TYPES.has(type);
+}
+
+/**
+ * Optional pre-buy gate for mint/routing risk checks (buy paths only).
+ * Keep this synchronous/local — it runs on the trade hot path.
+ */
+export interface TradeRiskGate {
+  checkBuy(params: TradeBuyParams): void | Promise<void>;
 }
 
 function normalizeSwqosConfigs(rpcUrl: string, configs: SwqosConfig[]): SwqosConfig[] {
@@ -570,18 +590,22 @@ import type { MiddlewareManager } from './middleware/traits';
 /**
  * Bonding curve account state
  */
+/** Native curve constructor; amounts use bigint. */
+export const BondingCurveAccount = NativeBondingCurveAccount;
+
 export interface BondingCurveAccount {
   discriminator: number;
   account: PublicKey;
-  virtualTokenReserves: number;
-  virtualSolReserves: number;
-  realTokenReserves: number;
-  realSolReserves: number;
-  tokenTotalSupply: number;
+  virtualTokenReserves: bigint;
+  virtualSolReserves: bigint;
+  realTokenReserves: bigint;
+  realSolReserves: bigint;
+  tokenTotalSupply: bigint;
   complete: boolean;
   creator: PublicKey;
   isMayhemMode: boolean;
   isCashbackCoin: boolean;
+  quoteMint?: PublicKey;
 }
 
 /**
@@ -634,15 +658,6 @@ function pumpFunQuoteMintForLayout(quoteMint: PublicKey): PublicKey {
   return quoteMint;
 }
 
-function parserU64(value: bigint | number | string | undefined): number {
-  if (value === undefined || value === null || value === '') return 0;
-  const n = typeof value === 'bigint' ? value : BigInt(value);
-  if (n > BigInt(Number.MAX_SAFE_INTEGER)) {
-    throw new TradeError(106, `event u64 value ${n.toString()} exceeds JavaScript safe integer range`);
-  }
-  return Number(n);
-}
-
 /**
  * Build PumpFun params from an already-decoded trade event object.
  * The event's `virtual_quote_reserves` / `real_quote_reserves` are mapped to
@@ -659,26 +674,30 @@ export function pumpFunParamsFromParserTrade(
   const hasRealQuote = event.real_quote_reserves !== undefined;
   const virtualQuote =
     !legacySolQuote && hasVirtualQuote
-      ? parserU64(event.virtual_quote_reserves)
-      : parserU64(event.virtual_sol_reserves);
+      ? parserU64BigInt(event.virtual_quote_reserves, 'virtual_quote_reserves')
+      : parserU64BigInt(event.virtual_sol_reserves, 'virtual_sol_reserves');
   const realQuote =
     !legacySolQuote && hasRealQuote
-      ? parserU64(event.real_quote_reserves)
-      : parserU64(event.real_sol_reserves);
+      ? parserU64BigInt(event.real_quote_reserves, 'real_quote_reserves')
+      : parserU64BigInt(event.real_sol_reserves, 'real_sol_reserves');
   const creator = parserPublicKey(event.creator);
+  const mint = parserPublicKey(event.mint);
+  const observedCurve = parserPublicKey(event.bonding_curve);
+  const curve = observedCurve.equals(PublicKey.default) && !mint.equals(PublicKey.default) ? getBondingCurvePda(mint) : observedCurve;
   return {
     bondingCurve: {
       discriminator: 0,
-      account: parserPublicKey(event.bonding_curve),
-      virtualTokenReserves: parserU64(event.virtual_token_reserves),
+      account: curve,
+      virtualTokenReserves: parserU64BigInt(event.virtual_token_reserves, 'virtual_token_reserves'),
       virtualSolReserves: virtualQuote,
-      realTokenReserves: parserU64(event.real_token_reserves),
+      realTokenReserves: parserU64BigInt(event.real_token_reserves, 'real_token_reserves'),
       realSolReserves: realQuote,
-      tokenTotalSupply: 0,
+      tokenTotalSupply: 1_000_000_000_000_000n,
       complete: false,
       creator,
-      isMayhemMode: !!event.mayhem_mode,
+      isMayhemMode: reconcileMayhemModeForTrade(event.mayhem_mode, parserPublicKey(event.fee_recipient)),
       isCashbackCoin: !!event.is_cashback_coin,
+      quoteMint: legacySolQuote ? SDK_CONSTANTS.WSOL_TOKEN_ACCOUNT : quoteMint,
     },
     associatedBondingCurve: parserPublicKey(event.associated_bonding_curve),
     creatorVault: parserPublicKey(event.creator_vault),
@@ -757,6 +776,12 @@ function parserIntegerBigInt(
       106,
       `${fieldName} must be provided as bigint or string outside the JavaScript safe integer range`
     );
+  }
+  if (typeof value !== 'number' && typeof value !== 'string' && typeof value !== 'bigint') {
+    throw new TradeError(106, `${fieldName} must be an exact integer`);
+  }
+  if (typeof value === 'string' && !/^-?[0-9]+$/.test(value)) {
+    throw new TradeError(106, `${fieldName} must be a decimal integer`);
   }
   return typeof value === 'bigint' ? value : BigInt(value);
 }
@@ -882,18 +907,20 @@ export interface RaydiumAmmV4Params {
   pcMint: PublicKey;
   tokenCoin: PublicKey;
   tokenPc: PublicKey;
-  ammOpenOrders: PublicKey;
-  ammTargetOrders: PublicKey;
-  serumProgram: PublicKey;
-  serumMarket: PublicKey;
-  serumBids: PublicKey;
-  serumAsks: PublicKey;
-  serumEventQueue: PublicKey;
-  serumCoinVaultAccount: PublicKey;
-  serumPcVaultAccount: PublicKey;
-  serumVaultSigner: PublicKey;
+  ammOpenOrders?: PublicKey;
+  ammTargetOrders?: PublicKey;
+  serumProgram?: PublicKey;
+  serumMarket?: PublicKey;
+  serumBids?: PublicKey;
+  serumAsks?: PublicKey;
+  serumEventQueue?: PublicKey;
+  serumCoinVaultAccount?: PublicKey;
+  serumPcVaultAccount?: PublicKey;
+  serumVaultSigner?: PublicKey;
   coinReserve: bigint;
   pcReserve: bigint;
+  swapFeeNumerator?:bigint;
+  swapFeeDenominator?:bigint;
 }
 
 /**
@@ -1279,12 +1306,13 @@ function mapPumpFunParams(p: PumpFunParams): PumpFunBuilderParams {
   return {
     bondingCurve: {
       account: bc.account,
-      virtualTokenReserves: BigInt(bc.virtualTokenReserves),
-      virtualSolReserves: BigInt(bc.virtualSolReserves),
-      realTokenReserves: BigInt(bc.realTokenReserves),
+      virtualTokenReserves: parserU64BigInt(bc.virtualTokenReserves, 'virtualTokenReserves'),
+      virtualSolReserves: parserU64BigInt(bc.virtualSolReserves, 'virtualSolReserves'),
+      realTokenReserves: parserU64BigInt(bc.realTokenReserves, 'realTokenReserves'),
       creator: bc.creator,
       isMayhemMode: bc.isMayhemMode,
       isCashbackCoin: bc.isCashbackCoin,
+      quoteMint: bc.quoteMint,
     },
     creatorVault: p.creatorVault,
     tokenProgram: p.tokenProgram,
@@ -1698,6 +1726,10 @@ function resolveTipRecipientPubkey(
  * Main trading client for Solana DEX operations（指令构建与 Rust SDK 对齐，经 `instruction/*` 实现）
  */
 export class TradingClient {
+  /** Prepare locally using current subscription state; no implicit RPC. */
+  prepareCachedTrade(request:NativeCachedTradeRequest) {return prepareNativeCachedTrade(request);}
+  async executeCachedTrade(request:NativeCachedTradeRequest,signers:readonly Signer[],submit:(wire:Uint8Array,tradeType:'Buy'|'Sell')=>Promise<string>){return new NativeCachedTradeExecutor(request.dexType).execute(request,signers,submit);}
+
   private payer: Keypair;
   private connection: Connection;
   private _config: TradeConfig;
@@ -1705,6 +1737,7 @@ export class TradingClient {
   private _logEnabled: boolean;
   private _swqosModulePromise?: Promise<typeof import('./swqos/clients')>;
   private _swqosClientCache: Map<string, RuntimeSwqosClient> = new Map();
+  private _riskGate?: TradeRiskGate;
 
   constructor(payer: Keypair, config: TradeConfig) {
     this.payer = payer;
@@ -1716,6 +1749,12 @@ export class TradingClient {
       commitment: config.commitment ?? 'confirmed',
     });
     this._logEnabled = config.logEnabled ?? true;
+  }
+
+  /** Attach a pre-buy risk gate (buy paths only). */
+  withRiskGate(gate: TradeRiskGate): this {
+    this._riskGate = gate;
+    return this;
   }
 
   private getSwqosModule(): Promise<typeof import('./swqos/clients')> {
@@ -1799,6 +1838,9 @@ export class TradingClient {
     }
     if (params.fixedOutputTokenAmount !== undefined) {
       validateAmount(params.fixedOutputTokenAmount, 'fixedOutputTokenAmount');
+    }
+    if (this._riskGate) {
+      await this._riskGate.checkBuy(params);
     }
     const blockhash =
       params.durableNonce?.nonceHash ?? params.recentBlockhash;
@@ -2182,8 +2224,11 @@ export class TradingClient {
           serumVaultSigner: p.serumVaultSigner,
           coinReserve: p.coinReserve,
           pcReserve: p.pcReserve,
+          swapFeeNumerator:p.swapFeeNumerator,
+          swapFeeDenominator:p.swapFeeDenominator,
         };
         return buildRaydiumAmmV4BuyInstructions({
+          inputMint: this.getInputMint(params.inputTokenType),
           payer: this.payer.publicKey,
           outputMint: params.mint,
           inputAmount: inputAmt,
@@ -2375,6 +2420,8 @@ export class TradingClient {
           serumVaultSigner: p.serumVaultSigner,
           coinReserve: p.coinReserve,
           pcReserve: p.pcReserve,
+          swapFeeNumerator:p.swapFeeNumerator,
+          swapFeeDenominator:p.swapFeeDenominator,
         };
         return buildRaydiumAmmV4SellInstructions({
           payer: this.payer.publicKey,
@@ -2968,3 +3015,28 @@ export * from './trading/factory';
 
 // Re-export middleware module
 export * from './middleware/traits';
+
+export {compileV1Message,signV1Transaction,type V1Config,type CompiledV1Message} from './serialization/v1';
+export {buildLaunchLabCurveExactIn,decodeLaunchLabCurve,buildStonkFunCurveExactIn,quoteLaunchLabExactIn,calculateTokenTransferFee,decodeStonkFunCurve,STONKFUN_PROGRAM,type StonkFunCurveAccounts,type LaunchLabQuoteState,type LaunchLabQuote,type TokenTransferFee,type LaunchLabAccountBytes} from './instruction/stonkfun';
+export {buildRaydiumClmmSwapV2,buildWhirlpoolSwapV2,buildMeteoraDlmmSwap2,type SwapV2Args,type RaydiumClmmSwapV2Accounts,type WhirlpoolSwapV2Accounts,type MeteoraDlmmSwap2Accounts} from './instruction/native_hops';
+export {tokenTransferFeeForEpoch} from './instruction/token_mint_state';
+export {type CachedAccount,type CacheReadContext,type ParserRouteIdentity,type ParserRawSnapshot,PoolTradeHint,AccountCacheSnapshot,SubscriptionAccountCache} from './trading/subscription_cache';
+
+export {type CachedCpmmState,type CpmmQuote,CACHED_CPMM_PROGRAM,quoteCachedCpmmExactIn,buildCachedCpmmExactIn} from './instruction/cached_cpmm';
+export * from './calc/clmm';
+export {type CachedClmmQuote,CACHED_CLMM_PROGRAM,prepareCachedClmm} from './trading/cached_clmm';
+export {type CachedRouteLeg,type PreparedCachedRoute,prepareCachedRoute} from './trading/cached_route';
+export * from './calc/whirlpool';
+export {CACHED_WHIRLPOOL_PROGRAM,prepareCachedWhirlpool,decodeWhirlpoolTicks,type CachedWhirlpoolQuote} from './trading/cached_whirlpool';
+export {settleCachedRouteWithNativeSol,type NativeSolRoute} from './trading/native_sol';
+
+export * from "./calc/dlmm";
+export * from "./trading/cached_dlmm";
+
+export * from "./trading/cached_trade";
+
+export * from "./trading/cached_amm_v4";
+
+export {SubscriptionReadiness, CacheNotReadyError, type CacheReadinessState} from "./trading/subscription_readiness";
+
+export {candidateRoutes} from "./trading/route_candidates";

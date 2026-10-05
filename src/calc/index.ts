@@ -1,3 +1,4 @@
+import {pumpFunBuyExact,pumpFunSellExact} from "./pumpfun_exact";
 /**
  * Calculation utilities for Sol Trade SDK
  *
@@ -33,6 +34,7 @@ export class CalculationError extends Error {
 // ===== Validation Functions =====
 
 function validateAmount(amount: bigint, name: string = 'amount'): void {
+  if (typeof amount !== 'bigint') throw new CalculationError(`${name} must be bigint`);
   if (amount < BigInt(0)) {
     throw new CalculationError(`${name} cannot be negative: ${amount}`);
   }
@@ -69,10 +71,10 @@ function checkOverflow(a: bigint, b: bigint, operation: 'multiply' | 'add'): voi
  */
 export function computeFee(amount: bigint, feeBasisPoints: bigint): bigint {
   validateAmount(amount, 'amount');
-  validateBasisPoints(feeBasisPoints);
-
-  checkOverflow(amount, feeBasisPoints, 'multiply');
-  return ceilDiv(amount * feeBasisPoints, BigInt(10000));
+  validateAmount(feeBasisPoints, 'fee basis points');
+  const result = (amount * feeBasisPoints + 9999n) / 10000n;
+  validateAmount(result, 'fee');
+  return result;
 }
 
 /**
@@ -85,8 +87,7 @@ export function ceilDiv(a: bigint, b: bigint): bigint {
   validateAmount(a, 'dividend');
   validateAmount(b, 'divisor');
 
-  checkOverflow(a, b - BigInt(1), 'add');
-  return (a + b - BigInt(1)) / b;
+  return a / b + (a % b === 0n ? 0n : 1n);
 }
 
 /**
@@ -99,14 +100,12 @@ export function ceilDiv(a: bigint, b: bigint): bigint {
 export function calculateWithSlippageBuy(amount: bigint, basisPoints: bigint): bigint {
   validateAmount(amount, 'amount');
   
-  // Clamp basis points to max 9999 (99.99%) to prevent amount doubling at 100%
+  validateAmount(basisPoints, 'slippage basis points');
+  // Rust clamps slippage and saturates the final u64 buy budget.
   const bps = basisPoints > MAX_SLIPPAGE_BASIS_POINTS ? MAX_SLIPPAGE_BASIS_POINTS : basisPoints;
   
-  checkOverflow(amount, bps, 'multiply');
-  const slippageAmount = (amount * bps) / BigInt(10000);
-
-  checkOverflow(amount, slippageAmount, 'add');
-  return amount + slippageAmount;
+  const result = amount + amount * bps / 10000n;
+  return result > MAX_SAFE_BIGINT ? MAX_SAFE_BIGINT : result;
 }
 
 /**
@@ -115,21 +114,13 @@ export function calculateWithSlippageBuy(amount: bigint, basisPoints: bigint): b
  * 
  * 100% from Rust: src/utils/calc/common.rs calculate_with_slippage_sell
  * 
- * Note: Returns 1n if amount <= basisPoints / 10000n to ensure minimum output.
+ * Slippage is clamped to 9999 bps; zero input returns zero.
  */
 export function calculateWithSlippageSell(amount: bigint, basisPoints: bigint): bigint {
   validateAmount(amount, 'amount');
-  validateBasisPoints(basisPoints);
-
-  // Rust: if amount <= basis_points / 10000 { 1 } else { ... }
-  if (amount <= basisPoints / BigInt(10000)) {
-    return BigInt(1);
-  }
-
-  checkOverflow(amount, basisPoints, 'multiply');
-  const slippageAmount = (amount * basisPoints) / BigInt(10000);
-
-  return amount - slippageAmount;
+  validateAmount(basisPoints, 'slippage basis points');
+  const bps = basisPoints > MAX_SLIPPAGE_BASIS_POINTS ? MAX_SLIPPAGE_BASIS_POINTS : basisPoints;
+  return amount - amount * bps / 10000n;
 }
 
 // ===== PumpFun Constants =====
@@ -153,37 +144,8 @@ export function getBuyTokenAmountFromSolAmount(
   hasCreator: boolean,
   amount: bigint
 ): bigint {
-  if (amount === BigInt(0) || virtualTokenReserves === BigInt(0)) {
-    return BigInt(0);
-  }
-
-  let totalFeeBasisPoints = PUMPFUN_CONSTANTS.FEE_BASIS_POINTS;
-  if (hasCreator) {
-    totalFeeBasisPoints += PUMPFUN_CONSTANTS.CREATOR_FEE;
-  }
-
-  const inputAmount =
-    (amount * BigInt(10000)) / (totalFeeBasisPoints + BigInt(10000));
-  const denominator = virtualSolReserves + inputAmount;
-
-  let tokensReceived =
-    (inputAmount * virtualTokenReserves) / denominator;
-
-  if (tokensReceived > realTokenReserves) {
-    tokensReceived = realTokenReserves;
-  }
-
-  // Minimum token protection
-  if (tokensReceived <= BigInt(100) * BigInt(1000000)) {
-    if (amount > BigInt(10000000)) {
-      // > 0.01 SOL
-      tokensReceived = BigInt('25547619000000000');
-    } else {
-      tokensReceived = BigInt('255476000000000');
-    }
-  }
-
-  return tokensReceived;
+  if(typeof hasCreator!=="boolean")throw new TypeError("hasCreator must be boolean");
+  return pumpFunBuyExact(virtualTokenReserves,virtualSolReserves,realTokenReserves,amount,95n+(hasCreator?30n:0n));
 }
 
 /**
@@ -195,26 +157,8 @@ export function getSellSolAmountFromTokenAmount(
   hasCreator: boolean,
   amount: bigint
 ): bigint {
-  if (amount === BigInt(0) || virtualTokenReserves === BigInt(0)) {
-    return BigInt(0);
-  }
-
-  const numerator = amount * virtualSolReserves;
-  const denominator = virtualTokenReserves + amount;
-
-  const solCost = numerator / denominator;
-
-  let totalFeeBasisPoints = PUMPFUN_CONSTANTS.FEE_BASIS_POINTS;
-  if (hasCreator) {
-    totalFeeBasisPoints += PUMPFUN_CONSTANTS.CREATOR_FEE;
-  }
-
-  const fee = computeFee(solCost, totalFeeBasisPoints);
-
-  if (solCost < fee) {
-    return BigInt(0);
-  }
-  return solCost - fee;
+  if(typeof hasCreator!=="boolean")throw new TypeError("hasCreator must be boolean");
+  return pumpFunSellExact(virtualTokenReserves,virtualSolReserves,amount,95n+(hasCreator?30n:0n));
 }
 
 // ===== PumpSwap Constants =====
@@ -271,7 +215,7 @@ export interface SellQuoteInputResult {
   minQuote: bigint;
 }
 
-/** Compute the signed PumpSwap quote reserve used for pricing. */
+/** Add the signed i128 offset to the vault. Zero is valid; trade quotes require liquidity. */
 export function effectiveQuoteReserves(
   quoteVaultBalance: bigint,
   virtualQuoteReserves: bigint
@@ -285,7 +229,7 @@ export function effectiveQuoteReserves(
     );
   }
   const effective = quoteVaultBalance + virtualQuoteReserves;
-  if (effective <= BigInt(0) || effective > MAX_SAFE_BIGINT) {
+  if (effective < BigInt(0) || effective > MAX_SAFE_BIGINT) {
     throw new CalculationError(
       `Invalid effective quote reserves: raw=${quoteVaultBalance}, virtual=${virtualQuoteReserves}`
     );
@@ -302,6 +246,13 @@ function pumpSwapCeilDiv(value: bigint, divisor: bigint, name: string): bigint {
     throw new CalculationError(`Calculated ${name} exceeds u64`);
   }
   return result;
+}
+
+function validatePumpSwapInputs(amount: bigint, slippage: bigint, baseReserve: bigint, quoteReserve: bigint, fees: PumpSwapFeeBasisPoints): void {
+  for (const [name, value] of Object.entries({amount, slippage, baseReserve, quoteReserve,
+    lpFee: fees.lpFeeBasisPoints, protocolFee: fees.protocolFeeBasisPoints, creatorFee: fees.coinCreatorFeeBasisPoints})) {
+    validateAmount(value, name);
+  }
 }
 
 /**
@@ -333,10 +284,14 @@ export function buyBaseInputInternalWithFees(
   virtualQuoteReserves: bigint,
   feeBasisPoints: PumpSwapFeeBasisPoints
 ): BuyBaseInputResult {
+  validatePumpSwapInputs(base, slippageBasisPoints, baseReserve, quoteReserve, feeBasisPoints);
   if (baseReserve === BigInt(0) || quoteReserve === BigInt(0)) {
     throw new Error('Invalid input: reserves cannot be zero');
   }
   const effectiveQuoteReserve = effectiveQuoteReserves(quoteReserve, virtualQuoteReserves);
+  if (effectiveQuoteReserve === BigInt(0)) {
+    throw new CalculationError('Invalid effective quote reserves: depleted pool');
+  }
   if (base > baseReserve) {
     throw new Error('Cannot buy more base tokens than pool reserves');
   }
@@ -393,16 +348,22 @@ export function buyQuoteInputInternalWithFees(
   virtualQuoteReserves: bigint,
   feeBasisPoints: PumpSwapFeeBasisPoints
 ): BuyQuoteInputResult {
+  validatePumpSwapInputs(quote, slippageBasisPoints, baseReserve, quoteReserve, feeBasisPoints);
   if (baseReserve === BigInt(0) || quoteReserve === BigInt(0)) {
     throw new Error('Invalid input: reserves cannot be zero');
   }
   const effectiveQuoteReserve = effectiveQuoteReserves(quoteReserve, virtualQuoteReserves);
+  if (effectiveQuoteReserve === BigInt(0)) {
+    throw new CalculationError('Invalid effective quote reserves: depleted pool');
+  }
 
   const totalFeeBps =
     feeBasisPoints.lpFeeBasisPoints +
     feeBasisPoints.protocolFeeBasisPoints +
     feeBasisPoints.coinCreatorFeeBasisPoints;
+  validateAmount(totalFeeBps, 'total fee basis points');
   const denominator = BigInt(10000) + totalFeeBps;
+  validateAmount(denominator, 'fee denominator');
 
   let effectiveQuote = (quote * BigInt(10000)) / denominator;
   const lpFee = computeFee(effectiveQuote, feeBasisPoints.lpFeeBasisPoints);
@@ -412,10 +373,11 @@ export function buyQuoteInputInternalWithFees(
   if (totalWithFees > quote) {
     effectiveQuote -= totalWithFees - quote;
     if (effectiveQuote < BigInt(0)) {
-      effectiveQuote = BigInt(0);
+      throw new CalculationError('Quote input is too small to cover fees');
     }
   }
-  const inputAmount = effectiveQuote > BigInt(0) ? effectiveQuote - BigInt(1) : BigInt(0);
+  if (effectiveQuote === 0n) throw new CalculationError('Quote input is too small after fees');
+  const inputAmount = effectiveQuote - 1n;
 
   const numerator = baseReserve * inputAmount;
   const denominatorEffective = effectiveQuoteReserve + inputAmount;
@@ -463,10 +425,14 @@ export function sellBaseInputInternalWithFees(
   virtualQuoteReserves: bigint,
   feeBasisPoints: PumpSwapFeeBasisPoints
 ): SellBaseInputResult {
+  validatePumpSwapInputs(base, slippageBasisPoints, baseReserve, quoteReserve, feeBasisPoints);
   if (baseReserve === BigInt(0) || quoteReserve === BigInt(0)) {
     throw new Error('Invalid input: reserves cannot be zero');
   }
   const effectiveQuoteReserve = effectiveQuoteReserves(quoteReserve, virtualQuoteReserves);
+  if (effectiveQuoteReserve === BigInt(0)) {
+    throw new CalculationError('Invalid effective quote reserves: depleted pool');
+  }
 
   const quoteAmountOut =
     (effectiveQuoteReserve * base) / (baseReserve + base);
@@ -476,6 +442,7 @@ export function sellBaseInputInternalWithFees(
   const coinCreatorFee = computeFee(quoteAmountOut, feeBasisPoints.coinCreatorFeeBasisPoints);
 
   const totalFees = lpFee + protocolFee + coinCreatorFee;
+  validateAmount(totalFees, 'total fees');
   if (totalFees > quoteAmountOut) {
     throw new Error('Fees exceed output');
   }
@@ -522,6 +489,7 @@ export function sellQuoteInputInternalWithFees(
   virtualQuoteReserves: bigint,
   feeBasisPoints: PumpSwapFeeBasisPoints
 ): SellQuoteInputResult {
+  validatePumpSwapInputs(quote, slippageBasisPoints, baseReserve, quoteReserve, feeBasisPoints);
   if (baseReserve === BigInt(0) || quoteReserve === BigInt(0)) {
     throw new Error('Invalid input: reserves cannot be zero');
   }
@@ -529,6 +497,9 @@ export function sellQuoteInputInternalWithFees(
     throw new Error('Cannot receive more than pool reserves');
   }
   const effectiveQuoteReserve = effectiveQuoteReserves(quoteReserve, virtualQuoteReserves);
+  if (effectiveQuoteReserve === BigInt(0)) {
+    throw new CalculationError('Invalid effective quote reserves: depleted pool');
+  }
 
   const rawQuote = calculateQuoteAmountOut(
     quote,
@@ -696,122 +667,39 @@ export interface MeteoraSwapResult {
 /**
  * Compute swap amount for Meteora DAMM V2
  */
-export function meteoraDammV2ComputeSwapAmount(
-  tokenAReserve: bigint,
-  tokenBReserve: bigint,
-  isAToB: boolean,
-  amountIn: bigint,
-  slippageBasisPoints: bigint
-): MeteoraSwapResult {
-  if (amountIn === BigInt(0)) {
-    return { amountOut: BigInt(0), minAmountOut: BigInt(0) };
-  }
-
-  let amountOut: bigint;
-
-  if (isAToB) {
-    // Swapping token A for token B
-    if (tokenAReserve === BigInt(0)) {
-      return { amountOut: BigInt(0), minAmountOut: BigInt(0) };
-    }
-
-    // Constant product: b_out = (b_reserve * a_in) / (a_reserve + a_in)
-    const numerator = tokenBReserve * amountIn;
-    const denominator = tokenAReserve + amountIn;
-
-    if (denominator === BigInt(0)) {
-      return { amountOut: BigInt(0), minAmountOut: BigInt(0) };
-    }
-
-    amountOut = numerator / denominator;
-  } else {
-    // Swapping token B for token A
-    if (tokenBReserve === BigInt(0)) {
-      return { amountOut: BigInt(0), minAmountOut: BigInt(0) };
-    }
-
-    // Constant product: a_out = (a_reserve * b_in) / (b_reserve + b_in)
-    const numerator = tokenAReserve * amountIn;
-    const denominator = tokenBReserve + amountIn;
-
-    if (denominator === BigInt(0)) {
-      return { amountOut: BigInt(0), minAmountOut: BigInt(0) };
-    }
-
-    amountOut = numerator / denominator;
-  }
-
-  // Apply slippage
-  const minAmountOut = calculateWithSlippageSell(amountOut, slippageBasisPoints);
-
-  return { amountOut, minAmountOut };
+/** Compatibility constant-product estimate, not a DAMM v2 fee/sqrt-price quote. */
+export function meteoraDammV2ComputeSwapAmount(tokenAReserve:bigint,tokenBReserve:bigint,isAToB:boolean,amountIn:bigint,slippageBasisPoints:bigint):MeteoraSwapResult {
+ validateAmount(slippageBasisPoints,'slippage');
+ if(typeof isAToB!=='boolean')throw new CalculationError('direction must be boolean');
+ const amountOut=meteoraDammV2GetAmountOut(amountIn,isAToB?tokenAReserve:tokenBReserve,isAToB?tokenBReserve:tokenAReserve,0n);
+ return {amountOut,minAmountOut:calculateWithSlippageSell(amountOut,slippageBasisPoints)};
 }
-
-/**
- * Calculate current price (token B per token A) for Meteora DAMM V2
- */
-export function meteoraDammV2CalculatePrice(
-  tokenAReserve: bigint,
-  tokenBReserve: bigint
-): number {
-  if (tokenAReserve === BigInt(0)) {
-    return 0.0;
-  }
-  return Number(tokenBReserve) / Number(tokenAReserve);
+export function meteoraDammV2CalculatePrice(tokenAReserve:bigint,tokenBReserve:bigint):number {
+ validateAmount(tokenAReserve,'reserve A');validateAmount(tokenBReserve,'reserve B');
+ return tokenAReserve===0n?0:Number(tokenBReserve)/Number(tokenAReserve);
 }
-
-/**
- * Calculate liquidity (geometric mean of reserves) for Meteora DAMM V2
- */
-export function meteoraDammV2CalculateLiquidity(
-  tokenAReserve: bigint,
-  tokenBReserve: bigint
-): bigint {
-  if (tokenAReserve === BigInt(0) || tokenBReserve === BigInt(0)) {
-    return BigInt(0);
-  }
-  return BigInt(Math.floor(Math.sqrt(Number(tokenAReserve) * Number(tokenBReserve))));
+export function meteoraDammV2CalculateLiquidity(tokenAReserve:bigint,tokenBReserve:bigint):bigint {
+ validateAmount(tokenAReserve,'reserve A');validateAmount(tokenBReserve,'reserve B');
+ const n=tokenAReserve*tokenBReserve;
+ if(n<2n)return n;
+ let x=1n<<BigInt(Math.ceil(n.toString(2).length/2));
+ for(;;){const y=(x+n/x)>>1n;if(y>=x)return x;x=y;}
 }
-
-/**
- * Calculate output amount with fee consideration for Meteora DAMM V2
- */
-export function meteoraDammV2GetAmountOut(
-  amountIn: bigint,
-  inputReserve: bigint,
-  outputReserve: bigint,
-  feeBasisPoints: bigint
-): bigint {
-  if (inputReserve === BigInt(0) || outputReserve === BigInt(0) || amountIn === BigInt(0)) {
-    return BigInt(0);
-  }
-
-  // Apply fee
-  const amountInAfterFee = (amountIn * (BigInt(10000) - feeBasisPoints)) / BigInt(10000);
-
-  const numerator = amountInAfterFee * outputReserve;
-  const denominator = inputReserve + amountInAfterFee;
-
-  return numerator / denominator;
+export function meteoraDammV2GetAmountOut(amountIn:bigint,inputReserve:bigint,outputReserve:bigint,feeBasisPoints:bigint):bigint {
+ for(const v of [amountIn,inputReserve,outputReserve,feeBasisPoints])validateAmount(v);
+ if(feeBasisPoints>=10000n||!inputReserve||!outputReserve||!amountIn)return 0n;
+ const net=amountIn*(10000n-feeBasisPoints)/10000n;
+ return net*outputReserve/(inputReserve+net);
 }
-
-/**
- * Calculate input amount needed for desired output for Meteora DAMM V2
- */
-export function meteoraDammV2GetAmountIn(
-  amountOut: bigint,
-  inputReserve: bigint,
-  outputReserve: bigint,
-  feeBasisPoints: bigint
-): bigint {
-  if (inputReserve === BigInt(0) || outputReserve === BigInt(0) || amountOut >= outputReserve) {
-    return BigInt(0);
-  }
-
-  const numerator = inputReserve * amountOut * BigInt(10000);
-  const denominator = (outputReserve - amountOut) * (BigInt(10000) - feeBasisPoints);
-
-  return ceilDiv(numerator, denominator);
+export function meteoraDammV2GetAmountIn(amountOut:bigint,inputReserve:bigint,outputReserve:bigint,feeBasisPoints:bigint):bigint {
+ for(const v of [amountOut,inputReserve,outputReserve,feeBasisPoints])validateAmount(v);
+ if(feeBasisPoints>=10000n||!inputReserve||!outputReserve||amountOut>=outputReserve)return 0n;
+ const raw=inputReserve*amountOut,remaining=outputReserve-amountOut;
+ const net=raw/remaining+(raw%remaining===0n?0n:1n);
+ const numerator=net*10000n,denominator=10000n-feeBasisPoints;
+ const result=numerator/denominator+(numerator%denominator===0n?0n:1n);
+ // Match the compatibility Go entry's zero result for an unrepresentable u64 input.
+ return result>MAX_SAFE_BIGINT?0n:result;
 }
 
 // ===== Utility Functions =====
@@ -984,32 +872,36 @@ export function getBonkBuyTokenAmountFromSolAmount(
   slippageBasisPoints: bigint
 ): bigint {
   const amountInU128 = amountIn;
-  
+  const bps =
+    slippageBasisPoints > MAX_SLIPPAGE_BASIS_POINTS
+      ? MAX_SLIPPAGE_BASIS_POINTS
+      : slippageBasisPoints;
+
   // Fee rates from Bonk - 100% from Rust: src/instruction/utils/bonk.rs accounts
   const PROTOCOL_FEE_RATE = BigInt(25);   // 0.25%
   const PLATFORM_FEE_RATE = BigInt(100);  // 1%
   const SHARE_FEE_RATE = BigInt(0);       // 0%
-  
+
   // Calculate fees
   const protocolFee = (amountInU128 * PROTOCOL_FEE_RATE) / BigInt(10000);
   const platformFee = (amountInU128 * PLATFORM_FEE_RATE) / BigInt(10000);
   const shareFee = (amountInU128 * SHARE_FEE_RATE) / BigInt(10000);
-  
+
   // Calculate net input after fees
   const amountInNet = amountInU128 - protocolFee - platformFee - shareFee;
-  
+
   // Calculate total reserves
   const inputReserve = virtualQuote + realQuote;
   const outputReserve = virtualBase - realBase;
-  
+
   // Apply constant product formula
   const numerator = amountInNet * outputReserve;
   const denominator = inputReserve + amountInNet;
   let amountOut = numerator / denominator;
-  
-  // Apply slippage
-  amountOut = amountOut - (amountOut * slippageBasisPoints) / BigInt(10000);
-  
+
+  // Apply slippage (bps already clamped)
+  amountOut = amountOut - (amountOut * bps) / BigInt(10000);
+
   return amountOut;
 }
 
@@ -1026,32 +918,36 @@ export function getBonkSellSolAmountFromTokenAmount(
   slippageBasisPoints: bigint
 ): bigint {
   const amountInU128 = amountIn;
-  
+  const bps =
+    slippageBasisPoints > MAX_SLIPPAGE_BASIS_POINTS
+      ? MAX_SLIPPAGE_BASIS_POINTS
+      : slippageBasisPoints;
+
   // For sell, input_reserve is token reserves, output_reserve is SOL reserves
   const inputReserve = virtualBase - realBase;
   const outputReserve = virtualQuote + realQuote;
-  
+
   // Use constant product formula
   const numerator = amountInU128 * outputReserve;
   const denominator = inputReserve + amountInU128;
   const solAmountOut = numerator / denominator;
-  
+
   // Fee rates from Bonk - 100% from Rust: src/instruction/utils/bonk.rs accounts
   const PROTOCOL_FEE_RATE = BigInt(25);   // 0.25%
   const PLATFORM_FEE_RATE = BigInt(100);  // 1%
   const SHARE_FEE_RATE = BigInt(0);       // 0%
-  
+
   // Calculate fees
   const protocolFee = (solAmountOut * PROTOCOL_FEE_RATE) / BigInt(10000);
   const platformFee = (solAmountOut * PLATFORM_FEE_RATE) / BigInt(10000);
   const shareFee = (solAmountOut * SHARE_FEE_RATE) / BigInt(10000);
-  
+
   // Net SOL after fees
   const solAmountNet = solAmountOut - protocolFee - platformFee - shareFee;
-  
-  // Apply slippage
-  const finalAmount = solAmountNet - (solAmountNet * slippageBasisPoints) / BigInt(10000);
-  
+
+  // Apply slippage (bps already clamped)
+  const finalAmount = solAmountNet - (solAmountNet * bps) / BigInt(10000);
+
   return finalAmount;
 }
 
@@ -1209,3 +1105,5 @@ export function priceToken1InToken0(
 ): number {
   return 1.0 / priceToken0InToken1(sqrtPriceX64, decimalsToken0, decimalsToken1);
 }
+
+export * from "./dlmm";

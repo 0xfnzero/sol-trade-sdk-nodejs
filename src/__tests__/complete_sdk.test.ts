@@ -279,9 +279,9 @@ describe('Calculations', () => {
 
   it('should calculate PumpFun sell output', () => {
     const sol = getSellSolAmountFromTokenAmount(
-      1000000000n, // 1 million tokens
+      1073000000000000n, // virtual token reserve
       30000000000n,
-      1073000000000000n,
+      false,
       1000000000n
     );
     expect(sol > 0n).toBe(true);

@@ -14,7 +14,7 @@ import {
 } from "@solana/web3.js";
 import {
   getAssociatedTokenAddressSync,
-  createAssociatedTokenAccountInstruction,
+  createAssociatedTokenAccountIdempotentInstruction,
   TOKEN_PROGRAM_ID,
   createCloseAccountInstruction,
   NATIVE_MINT,
@@ -48,7 +48,12 @@ export const METEORA_DAMM_V2_SWAP_DISCRIMINATOR: Buffer = Buffer.from([
 export const METEORA_DAMM_V2_SWAP2_DISCRIMINATOR: Buffer = Buffer.from([
   65, 75, 63, 76, 235, 91, 91, 136,
 ]);
+export const METEORA_DAMM_V2_SWAP_MODE_EXACT_IN = 0;
 export const METEORA_DAMM_V2_SWAP_MODE_PARTIAL_FILL = 1;
+export const METEORA_DAMM_V2_SWAP_MODE_EXACT_OUT = 2;
+export const METEORA_DAMM_V2_SYSVAR_INSTRUCTIONS = new PublicKey(
+  "Sysvar1nstructions1111111111111111111111111"
+);
 
 // ============================================
 // Seeds
@@ -83,6 +88,84 @@ export interface MeteoraDammV2Params {
   tokenBVault: PublicKey;
   tokenAProgram: PublicKey;
   tokenBProgram: PublicKey;
+  /** Optional referral token account (writable), inserted before event authority. */
+  referralTokenAccount?: PublicKey;
+  /** 0 exact-in, 1 partial-fill (default), 2 exact-out */
+  swapMode?: number;
+  /** Append Instructions sysvar when pool rate limiter applies. */
+  includeRateLimiterSysvar?: boolean;
+}
+
+function resolveMeteoraSwapMode(params: MeteoraDammV2Params): number {
+  const mode = params.swapMode ?? METEORA_DAMM_V2_SWAP_MODE_PARTIAL_FILL;
+  if (
+    mode !== METEORA_DAMM_V2_SWAP_MODE_EXACT_IN &&
+    mode !== METEORA_DAMM_V2_SWAP_MODE_PARTIAL_FILL &&
+    mode !== METEORA_DAMM_V2_SWAP_MODE_EXACT_OUT
+  ) {
+    throw new Error(`Unsupported MeteoraDammV2 swap_mode ${mode}`);
+  }
+  return mode;
+}
+
+function resolveMeteoraAmounts(
+  swapMode: number,
+  amountIn: bigint,
+  fixedOutput: bigint
+): [bigint, bigint] {
+  if (swapMode === METEORA_DAMM_V2_SWAP_MODE_EXACT_OUT) {
+    return [fixedOutput, amountIn];
+  }
+  return [amountIn, fixedOutput];
+}
+
+function buildMeteoraAccountMetas(
+  protocolParams: MeteoraDammV2Params,
+  payerPubkey: PublicKey,
+  inputTokenAccount: PublicKey,
+  outputTokenAccount: PublicKey,
+  eventAuthority: PublicKey
+): AccountMeta[] {
+  const {
+    pool,
+    tokenAMint,
+    tokenBMint,
+    tokenAVault,
+    tokenBVault,
+    tokenAProgram,
+    tokenBProgram,
+    referralTokenAccount,
+    includeRateLimiterSysvar = false,
+  } = protocolParams;
+
+  const accounts: AccountMeta[] = [
+    { pubkey: METEORA_DAMM_V2_AUTHORITY, isSigner: false, isWritable: false },
+    { pubkey: pool, isSigner: false, isWritable: true },
+    { pubkey: inputTokenAccount, isSigner: false, isWritable: true },
+    { pubkey: outputTokenAccount, isSigner: false, isWritable: true },
+    { pubkey: tokenAVault, isSigner: false, isWritable: true },
+    { pubkey: tokenBVault, isSigner: false, isWritable: true },
+    { pubkey: tokenAMint, isSigner: false, isWritable: false },
+    { pubkey: tokenBMint, isSigner: false, isWritable: false },
+    { pubkey: payerPubkey, isSigner: true, isWritable: false },
+    { pubkey: tokenAProgram, isSigner: false, isWritable: false },
+    { pubkey: tokenBProgram, isSigner: false, isWritable: false },
+  ];
+  accounts.push(referralTokenAccount
+    ? {pubkey:referralTokenAccount,isSigner:false,isWritable:true}
+    : {pubkey:METEORA_DAMM_V2_PROGRAM_ID,isSigner:false,isWritable:false});
+  accounts.push(
+    { pubkey: eventAuthority, isSigner: false, isWritable: false },
+    { pubkey: METEORA_DAMM_V2_PROGRAM_ID, isSigner: false, isWritable: false }
+  );
+  if (includeRateLimiterSysvar) {
+    accounts.push({
+      pubkey: METEORA_DAMM_V2_SYSVAR_INSTRUCTIONS,
+      isSigner: false,
+      isWritable: false,
+    });
+  }
+  return accounts;
 }
 
 export interface BuildMeteoraDammV2BuyInstructionsParams {
@@ -216,7 +299,7 @@ export function buildMeteoraDammV2BuyInstructions(
   if (createInputMintAta && inputMint.equals(WSOL_TOKEN_ACCOUNT)) {
     const wsolAta = getAssociatedTokenAddressSync(NATIVE_MINT, payerPubkey, true);
     instructions.push(
-      createAssociatedTokenAccountInstruction(
+      createAssociatedTokenAccountIdempotentInstruction(
         payerPubkey,
         wsolAta,
         payerPubkey,
@@ -228,13 +311,13 @@ export function buildMeteoraDammV2BuyInstructions(
       SystemProgram.transfer({
         fromPubkey: payerPubkey,
         toPubkey: wsolAta,
-        lamports: Number(inputAmount),
+        lamports: inputAmount,
       })
     );
     instructions.push(createSyncNativeInstruction(wsolAta));
   } else if (createInputMintAta) {
     instructions.push(
-      createAssociatedTokenAccountInstruction(
+      createAssociatedTokenAccountIdempotentInstruction(
         payerPubkey,
         inputTokenAccount,
         payerPubkey,
@@ -247,7 +330,7 @@ export function buildMeteoraDammV2BuyInstructions(
   // Create output mint ATA if needed
   if (createOutputMintAta) {
     instructions.push(
-      createAssociatedTokenAccountInstruction(
+      createAssociatedTokenAccountIdempotentInstruction(
         payerPubkey,
         outputTokenAccount,
         payerPubkey,
@@ -258,28 +341,21 @@ export function buildMeteoraDammV2BuyInstructions(
   }
 
   // Build swap2 instruction data
+  const swapMode = resolveMeteoraSwapMode(protocolParams);
+  const [amount0, amount1] = resolveMeteoraAmounts(swapMode, inputAmount, fixedOutputAmount);
   const data = Buffer.alloc(25);
   METEORA_DAMM_V2_SWAP2_DISCRIMINATOR.copy(data, 0);
-  data.writeBigUInt64LE(inputAmount, 8);
-  data.writeBigUInt64LE(fixedOutputAmount, 16);
-  data.writeUInt8(METEORA_DAMM_V2_SWAP_MODE_PARTIAL_FILL, 24);
+  data.writeBigUInt64LE(amount0, 8);
+  data.writeBigUInt64LE(amount1, 16);
+  data.writeUInt8(swapMode, 24);
 
-  // Build accounts (13 accounts)
-  const accounts: AccountMeta[] = [
-    { pubkey: METEORA_DAMM_V2_AUTHORITY, isSigner: false, isWritable: false },
-    { pubkey: pool, isSigner: false, isWritable: true },
-    { pubkey: inputTokenAccount, isSigner: false, isWritable: true },
-    { pubkey: outputTokenAccount, isSigner: false, isWritable: true },
-    { pubkey: tokenAVault, isSigner: false, isWritable: true },
-    { pubkey: tokenBVault, isSigner: false, isWritable: true },
-    { pubkey: tokenAMint, isSigner: false, isWritable: false },
-    { pubkey: tokenBMint, isSigner: false, isWritable: false },
-    { pubkey: payerPubkey, isSigner: true, isWritable: true },
-    { pubkey: tokenAProgram, isSigner: false, isWritable: false },
-    { pubkey: tokenBProgram, isSigner: false, isWritable: false },
-    { pubkey: eventAuthority, isSigner: false, isWritable: false },
-    { pubkey: METEORA_DAMM_V2_PROGRAM_ID, isSigner: false, isWritable: false },
-  ];
+  const accounts = buildMeteoraAccountMetas(
+    protocolParams,
+    payerPubkey,
+    inputTokenAccount,
+    outputTokenAccount,
+    eventAuthority
+  );
 
   instructions.push(
     new TransactionInstruction({
@@ -382,7 +458,7 @@ export function buildMeteoraDammV2SellInstructions(
   if (createOutputMintAta && outputMint.equals(WSOL_TOKEN_ACCOUNT)) {
     const wsolAta = getAssociatedTokenAddressSync(NATIVE_MINT, payerPubkey, true);
     instructions.push(
-      createAssociatedTokenAccountInstruction(
+      createAssociatedTokenAccountIdempotentInstruction(
         payerPubkey,
         wsolAta,
         payerPubkey,
@@ -392,7 +468,7 @@ export function buildMeteoraDammV2SellInstructions(
     );
   } else if (createOutputMintAta) {
     instructions.push(
-      createAssociatedTokenAccountInstruction(
+      createAssociatedTokenAccountIdempotentInstruction(
         payerPubkey,
         outputTokenAccount,
         payerPubkey,
@@ -403,28 +479,21 @@ export function buildMeteoraDammV2SellInstructions(
   }
 
   // Build swap2 instruction data
+  const swapMode = resolveMeteoraSwapMode(protocolParams);
+  const [amount0, amount1] = resolveMeteoraAmounts(swapMode, inputAmount, fixedOutputAmount);
   const data = Buffer.alloc(25);
   METEORA_DAMM_V2_SWAP2_DISCRIMINATOR.copy(data, 0);
-  data.writeBigUInt64LE(inputAmount, 8);
-  data.writeBigUInt64LE(fixedOutputAmount, 16);
-  data.writeUInt8(METEORA_DAMM_V2_SWAP_MODE_PARTIAL_FILL, 24);
+  data.writeBigUInt64LE(amount0, 8);
+  data.writeBigUInt64LE(amount1, 16);
+  data.writeUInt8(swapMode, 24);
 
-  // Build accounts
-  const accounts: AccountMeta[] = [
-    { pubkey: METEORA_DAMM_V2_AUTHORITY, isSigner: false, isWritable: false },
-    { pubkey: pool, isSigner: false, isWritable: true },
-    { pubkey: inputTokenAccount, isSigner: false, isWritable: true },
-    { pubkey: outputTokenAccount, isSigner: false, isWritable: true },
-    { pubkey: tokenAVault, isSigner: false, isWritable: true },
-    { pubkey: tokenBVault, isSigner: false, isWritable: true },
-    { pubkey: tokenAMint, isSigner: false, isWritable: false },
-    { pubkey: tokenBMint, isSigner: false, isWritable: false },
-    { pubkey: payerPubkey, isSigner: true, isWritable: true },
-    { pubkey: tokenAProgram, isSigner: false, isWritable: false },
-    { pubkey: tokenBProgram, isSigner: false, isWritable: false },
-    { pubkey: eventAuthority, isSigner: false, isWritable: false },
-    { pubkey: METEORA_DAMM_V2_PROGRAM_ID, isSigner: false, isWritable: false },
-  ];
+  const accounts = buildMeteoraAccountMetas(
+    protocolParams,
+    payerPubkey,
+    inputTokenAccount,
+    outputTokenAccount,
+    eventAuthority
+  );
 
   instructions.push(
     new TransactionInstruction({
@@ -467,89 +536,198 @@ export const METEORA_POOL_SIZE = 1104;
  * Meteora DAMM V2 Pool structure (simplified for essential fields)
  * 100% from Rust: src/instruction/utils/meteora_damm_v2_types.rs Pool
  */
+export interface MeteoraBaseFeeStruct {
+  cliffFeeNumerator: bigint;
+  feeSchedulerMode: number;
+  padding0: Uint8Array;
+  numberOfPeriod: number;
+  periodFrequency: bigint;
+  reductionFactor: bigint;
+  padding1: bigint;
+}
+
+export interface MeteoraDynamicFeeStruct {
+  initialized: number;
+  padding: Uint8Array;
+  maxVolatilityAccumulator: number;
+  variableFeeControl: number;
+  binStep: number;
+  filterPeriod: number;
+  decayPeriod: number;
+  reductionFactor: number;
+  lastUpdateTimestamp: bigint;
+  binStepU128: bigint;
+  sqrtPriceReference: bigint;
+  volatilityAccumulator: bigint;
+  volatilityReference: bigint;
+}
+
+export interface MeteoraPoolFeesStruct {
+  baseFee: MeteoraBaseFeeStruct;
+  protocolFeePercent: number;
+  partnerFeePercent: number;
+  referralFeePercent: number;
+  padding0: Uint8Array;
+  dynamicFee: MeteoraDynamicFeeStruct;
+  padding1: bigint[];
+}
+
+export interface MeteoraPoolMetrics {
+  totalLpAFee: bigint;
+  totalLpBFee: bigint;
+  totalProtocolAFee: bigint;
+  totalProtocolBFee: bigint;
+  totalPartnerAFee: bigint;
+  totalPartnerBFee: bigint;
+  totalPosition: bigint;
+  padding: bigint;
+}
+
+export interface MeteoraRewardInfo {
+  initialized: number;
+  rewardTokenFlag: number;
+  padding0: Uint8Array;
+  padding1: Uint8Array;
+  mint: PublicKey;
+  vault: PublicKey;
+  funder: PublicKey;
+  rewardDuration: bigint;
+  rewardDurationEnd: bigint;
+  rewardRate: bigint;
+  rewardPerTokenStored: Uint8Array;
+  lastUpdateTime: bigint;
+  cumulativeSecondsWithEmptyLiquidityReward: bigint;
+}
+
 export interface MeteoraDammV2Pool {
+  poolFees: MeteoraPoolFeesStruct;
   tokenAMint: PublicKey;
   tokenBMint: PublicKey;
   tokenAVault: PublicKey;
   tokenBVault: PublicKey;
+  whitelistedVault: PublicKey;
+  partner: PublicKey;
   liquidity: bigint;
+  padding: bigint;
+  protocolAFee: bigint;
+  protocolBFee: bigint;
+  partnerAFee: bigint;
+  partnerBFee: bigint;
+  sqrtMinPrice: bigint;
+  sqrtMaxPrice: bigint;
   sqrtPrice: bigint;
+  activationPoint: bigint;
+  activationType: number;
   poolStatus: number;
   tokenAFlag: number;
   tokenBFlag: number;
+  collectFeeMode: number;
+  poolType: number;
+  padding0: Uint8Array;
+  feeAPerLiquidity: Uint8Array;
+  feeBPerLiquidity: Uint8Array;
+  permanentLockLiquidity: bigint;
+  metrics: MeteoraPoolMetrics;
+  padding1: bigint[];
+  rewardInfos: MeteoraRewardInfo[];
 }
 
-/**
- * Decode a Meteora DAMM V2 pool from account data.
- * 100% from Rust: src/instruction/utils/meteora_damm_v2_types.rs pool_decode
- */
 export function decodeMeteoraPool(data: Buffer): MeteoraDammV2Pool | null {
-  if (data.length < METEORA_POOL_SIZE) {
-    return null;
-  }
-
-  try {
-    // Skip pool_fees structure (first 248 bytes)
-    let offset = 248;
-
-    // token_a_mint: Pubkey (32 bytes)
-    const tokenAMint = new PublicKey(data.subarray(offset, offset + 32));
-    offset += 32;
-
-    // token_b_mint: Pubkey
-    const tokenBMint = new PublicKey(data.subarray(offset, offset + 32));
-    offset += 32;
-
-    // token_a_vault: Pubkey
-    const tokenAVault = new PublicKey(data.subarray(offset, offset + 32));
-    offset += 32;
-
-    // token_b_vault: Pubkey
-    const tokenBVault = new PublicKey(data.subarray(offset, offset + 32));
-    offset += 32;
-
-    // Skip whitelisted_vault, partner (64 bytes)
-    offset += 64;
-
-    // liquidity: u128 (16 bytes)
-    const liquidity = data.readBigUInt64LE(offset) | (data.readBigUInt64LE(offset + 8) << BigInt(64));
-    offset += 16;
-
-    // Skip padding (16 bytes)
-    offset += 16;
-
-    // Skip protocol_a_fee, protocol_b_fee, partner_a_fee, partner_b_fee (32 bytes)
-    offset += 32;
-
-    // Skip sqrt_min_price, sqrt_max_price (32 bytes)
-    offset += 32;
-
-    // sqrt_price: u128
-    const sqrtPrice = data.readBigUInt64LE(offset) | (data.readBigUInt64LE(offset + 8) << BigInt(64));
-    offset += 16;
-
-    // Skip activation_point (8 bytes)
-    offset += 8;
-
-    // activation_type: u8, pool_status: u8, token_a_flag: u8, token_b_flag: u8
-    const poolStatus = data.readUInt8(offset + 1);
-    const tokenAFlag = data.readUInt8(offset + 2);
-    const tokenBFlag = data.readUInt8(offset + 3);
-
-    return {
-      tokenAMint,
-      tokenBMint,
-      tokenAVault,
-      tokenBVault,
-      liquidity,
-      sqrtPrice,
-      poolStatus,
-      tokenAFlag,
-      tokenBFlag,
-    };
-  } catch {
-    return null;
-  }
+ if(data.length < METEORA_POOL_SIZE)return null;
+ let offset=0;
+ const take=(size:number)=>{const value=Buffer.from(data.subarray(offset,offset+size));offset+=size;return value};
+ const integer=(size:number)=>{const value=take(size);let n=0n;for(let i=size-1;i>=0;i--)n=(n<<8n)|BigInt(value[i]!);return n};
+ const readBaseFeeStruct=(): MeteoraBaseFeeStruct => ({
+ cliffFeeNumerator: integer(8),
+ feeSchedulerMode: Number(integer(1)),
+ padding0: take(5),
+ numberOfPeriod: Number(integer(2)),
+ periodFrequency: integer(8),
+ reductionFactor: integer(8),
+ padding1: integer(8),
+ });
+ const readDynamicFeeStruct=(): MeteoraDynamicFeeStruct => ({
+ initialized: Number(integer(1)),
+ padding: take(7),
+ maxVolatilityAccumulator: Number(integer(4)),
+ variableFeeControl: Number(integer(4)),
+ binStep: Number(integer(2)),
+ filterPeriod: Number(integer(2)),
+ decayPeriod: Number(integer(2)),
+ reductionFactor: Number(integer(2)),
+ lastUpdateTimestamp: integer(8),
+ binStepU128: integer(16),
+ sqrtPriceReference: integer(16),
+ volatilityAccumulator: integer(16),
+ volatilityReference: integer(16),
+ });
+ const readPoolFeesStruct=(): MeteoraPoolFeesStruct => ({
+ baseFee: readBaseFeeStruct(),
+ protocolFeePercent: Number(integer(1)),
+ partnerFeePercent: Number(integer(1)),
+ referralFeePercent: Number(integer(1)),
+ padding0: take(5),
+ dynamicFee: readDynamicFeeStruct(),
+ padding1: Array.from({length:2},()=>integer(8)),
+ });
+ const readPoolMetrics=(): MeteoraPoolMetrics => ({
+ totalLpAFee: integer(16),
+ totalLpBFee: integer(16),
+ totalProtocolAFee: integer(8),
+ totalProtocolBFee: integer(8),
+ totalPartnerAFee: integer(8),
+ totalPartnerBFee: integer(8),
+ totalPosition: integer(8),
+ padding: integer(8),
+ });
+ const readRewardInfo=(): MeteoraRewardInfo => ({
+ initialized: Number(integer(1)),
+ rewardTokenFlag: Number(integer(1)),
+ padding0: take(6),
+ padding1: take(8),
+ mint: new PublicKey(take(32)),
+ vault: new PublicKey(take(32)),
+ funder: new PublicKey(take(32)),
+ rewardDuration: integer(8),
+ rewardDurationEnd: integer(8),
+ rewardRate: integer(16),
+ rewardPerTokenStored: take(32),
+ lastUpdateTime: integer(8),
+ cumulativeSecondsWithEmptyLiquidityReward: integer(8),
+ });
+ const readPool=(): MeteoraDammV2Pool => ({
+ poolFees: readPoolFeesStruct(),
+ tokenAMint: new PublicKey(take(32)),
+ tokenBMint: new PublicKey(take(32)),
+ tokenAVault: new PublicKey(take(32)),
+ tokenBVault: new PublicKey(take(32)),
+ whitelistedVault: new PublicKey(take(32)),
+ partner: new PublicKey(take(32)),
+ liquidity: integer(16),
+ padding: integer(16),
+ protocolAFee: integer(8),
+ protocolBFee: integer(8),
+ partnerAFee: integer(8),
+ partnerBFee: integer(8),
+ sqrtMinPrice: integer(16),
+ sqrtMaxPrice: integer(16),
+ sqrtPrice: integer(16),
+ activationPoint: integer(8),
+ activationType: Number(integer(1)),
+ poolStatus: Number(integer(1)),
+ tokenAFlag: Number(integer(1)),
+ tokenBFlag: Number(integer(1)),
+ collectFeeMode: Number(integer(1)),
+ poolType: Number(integer(1)),
+ padding0: take(2),
+ feeAPerLiquidity: take(32),
+ feeBPerLiquidity: take(32),
+ permanentLockLiquidity: integer(16),
+ metrics: readPoolMetrics(),
+ padding1: Array.from({length:10},()=>integer(8)),
+ rewardInfos: Array.from({length:2},()=>readRewardInfo()),
+ });
+ return readPool();
 }
 
 // ===== Async Fetch Functions - from Rust: src/instruction/utils/meteora_damm_v2.rs =====
