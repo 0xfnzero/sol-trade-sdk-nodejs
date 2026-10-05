@@ -98,6 +98,14 @@ for (const c of cases)
         payer,
       ),
     ).toThrow();
+    expect(() =>
+      f.validateCpmmCreatorFeeCollection(
+        snapshot,
+        { ...prepared, shareRate: prepared.shareRate.toString() } as any,
+        ctx,
+        payer,
+      ),
+    ).toThrow();
     cache.update(pk(c.share_pda), {
       owner: share?.owner ?? PublicKey.default,
       data: share?.data ?? Buffer.alloc(0),

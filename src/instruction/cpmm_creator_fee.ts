@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 /** CPMM collection parity with Rust 5.0.7. Pure preparation; no network on the hot path. */
 import {
   PublicKey,
@@ -351,12 +352,12 @@ export function validateCpmmCreatorFeeCollection(
     ctx,
     payer,
   );
-  const canonical = (p: typeof prepared) =>
-    JSON.stringify(p, (_, v) => (typeof v === "bigint" ? v.toString() : v));
-  // A new read slot may be used, but account versions and every prepared field must agree.
+  // Compare typed values directly; JSON would conflate bigint values with strings.
   if (
-    canonical({ ...current, snapshotSlot: prepared.snapshotSlot }) !==
-    canonical(prepared)
+    !isDeepStrictEqual(
+      { ...current, snapshotSlot: prepared.snapshotSlot },
+      prepared,
+    )
   )
     throw Error("CPMM creator-fee preparation changed; reprepare");
 }
