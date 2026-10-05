@@ -22,3 +22,5 @@ export * from "./raydium_amm_v4_builder";
 
 // Meteora DAMM V2 Protocol
 export * from "./meteora_damm_v2_builder";
+
+export * from './cpmm_creator_fee';

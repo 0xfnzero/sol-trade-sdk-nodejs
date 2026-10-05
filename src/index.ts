@@ -3040,3 +3040,5 @@ export * from "./trading/cached_amm_v4";
 export {SubscriptionReadiness, CacheNotReadyError, type CacheReadinessState} from "./trading/subscription_readiness";
 
 export {candidateRoutes} from "./trading/route_candidates";
+
+export * from './instruction/cpmm_creator_fee';

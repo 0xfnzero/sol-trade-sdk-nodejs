@@ -214,6 +214,15 @@ export class AccountCacheSnapshot {
   }
   assertUsable(): void { this.continuityGuard?.(); }
   /** Observed zero-lamport tombstone is absent; an unobserved key still throws. */
+  /** Includes explicit closed-account observations; unobserved keys still error. */
+  getObservation(key: PublicKey, ctx: CacheReadContext): CachedAccount {
+    this.assertUsable();
+    for (const n of [ctx.slot, ctx.epoch, ctx.maximumSlotAge]) u64(n);
+    const a = this.#accounts.get(key.toBase58());
+    if (!a) throw Error('Missing cached account: ' + key.toBase58());
+    if (a.slot > ctx.slot || ctx.slot - a.slot > ctx.maximumSlotAge) throw Error('Cached account is future or stale');
+    return owned(a);
+  }
   getOptional(key:PublicKey,ctx:CacheReadContext,expectedOwner?:PublicKey):CachedAccount|null {
     this.assertUsable();for(const n of [ctx.slot,ctx.epoch,ctx.maximumSlotAge])u64(n);
     const a=this.#accounts.get(key.toBase58());

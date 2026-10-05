@@ -78,9 +78,15 @@ This SDK is available in multiple languages:
 
 ## 🔖 Current Release
 
-**npm package:** `sol-trade-sdk@0.1.6`
+**npm package:** `sol-trade-sdk@0.1.7`
 
 This release refreshes PumpFun V2 and USDC quote-pool handling, keeps the default RPC submit lane active alongside SWQoS lanes, and aligns Raydium CPMM fixed-output swaps with the on-chain `swap_base_out` instruction. Trade execution requires a caller-supplied `recentBlockhash` or durable nonce; hot-path execution does not query RPC for blockhash, account, or balance data.
+
+## v0.1.7 — CPMM creator-fee parity
+
+Aligns the CPMM creator-fee collection surface with Rust 5.0.7: creator-signed (15 accounts) and permissionless (16 accounts) builders, mandatory share PDA, 236-byte AmmConfig and 145-byte CreatorFeeShare decoders, same-bank cold RPC rate reads, exact integer payout splitting, and RPC-free cached preparation with version/freshness/continuity revalidation. Uses shared mainnet simulation fixtures for direct account/byte/payout comparisons, including Token-2022 and a zero-rate override. PoolState and swap/LP behavior are unchanged. Estimates exclude Token-2022 transfer taxes; rates are read by the program at collection time.
+
+See [CPMM example](examples/cpmm_creator_fee_replay.ts) and [migration guide](NATIVE_MIGRATION.md).
 
 ## v0.1.6
 
@@ -137,11 +143,11 @@ Add to your `package.json`:
 ### Use NPM
 
 ```bash
-npm install sol-trade-sdk@0.1.6
+npm install sol-trade-sdk@0.1.7
 # or
-yarn add sol-trade-sdk@0.1.6
+yarn add sol-trade-sdk@0.1.7
 # or
-pnpm add sol-trade-sdk@0.1.6
+pnpm add sol-trade-sdk@0.1.7
 ```
 
 ## 🛠️ Usage Examples
