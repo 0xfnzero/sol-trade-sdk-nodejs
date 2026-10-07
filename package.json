@@ -45,7 +45,7 @@
   "files": [
     "dist",
     "src",
-    "NATIVE_MIGRATION.md"
+    "docs/USAGE.md"
   ],
   "scripts": {
     "build": "tsup src/index.ts src/cache/index.ts src/pool/index.ts src/rpc/index.ts src/swqos/index.ts src/trading/index.ts src/perf/index.ts --format cjs,esm --dts --clean",

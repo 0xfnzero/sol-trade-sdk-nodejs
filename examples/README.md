@@ -9,7 +9,7 @@ npm install
 npx tsx examples/trading_client.ts
 ~~~
 
-For a live bot, start from [low_latency_bot.ts](low_latency_bot.ts), read [LOW_LATENCY_BOT.md](LOW_LATENCY_BOT.md), and provide real parser, balance, quote, and state-refresh adapters. `PRIVATE_KEY` accepts a base58 64-byte secret key or a JSON array containing 64 bytes.
+For a live bot, start from [low_latency_bot.ts](low_latency_bot.ts), read [../docs/USAGE.md#low-latency-bot](../docs/USAGE.md#low-latency-bot), and provide real parser, balance, quote, and state-refresh adapters. `PRIVATE_KEY` accepts a base58 64-byte secret key or a JSON array containing 64 bytes.
 
 ## Coverage
 
@@ -34,6 +34,6 @@ For a live bot, start from [low_latency_bot.ts](low_latency_bot.ts), read [LOW_L
 
 `fixtures/batch2_cpmm_buy_20261003.json` 和 `batch2_cpmm_sell_20261003.json` 是完整冷启动快照，可交给本仓 `cached_cpmm` 示例离线构建独立买入/卖出；三语言 wire 一致。对应 `batch2_cpmm_simulations_20261003.json` 保存两笔成功主网模拟，可供 parser 的 `simulation_routes` 示例读取。没有真实发送。保存快照仅供复现，执行新交易前须由冷启动/订阅提供当前状态；构建与报价不调用 RPC。
 
-缓存 CPMM 现检查 vault 的 token authority，prepare 拒绝零最小到账。CLMM/DLMM 可扫描完整合法稀疏范围；bitmap 证明空区间不需要虚构账户，已初始化 array 缺少订阅数据仍明确拒绝。实时账户输入通过 sol-parser-sdk 的 gRPC 接入；见 [GRPC_CACHE.md](GRPC_CACHE.md)。新 array 发现、静态账户 freshness 和分叉一致性仍由 gRPC 订阅集成策略处理。
+缓存 CPMM 现检查 vault 的 token authority，prepare 拒绝零最小到账。CLMM/DLMM 可扫描完整合法稀疏范围；bitmap 证明空区间不需要虚构账户，已初始化 array 缺少订阅数据仍明确拒绝。实时账户输入通过 sol-parser-sdk 的 gRPC 接入；见 [../docs/USAGE.md#grpc-cache](../docs/USAGE.md#grpc-cache)。新 array 发现、静态账户 freshness 和分叉一致性仍由 gRPC 订阅集成策略处理。
 
-当前银行模拟与跨语言成交检查见 [SIMULATION_MATRIX.md](SIMULATION_MATRIX.md)，包含 `--simulation-out` 保存证据和 parser 离线验收流程。
+当前银行模拟与跨语言成交检查见 [../docs/USAGE.md#simulation-matrix](../docs/USAGE.md#simulation-matrix)，包含 `--simulation-out` 保存证据和 parser 离线验收流程。

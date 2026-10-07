@@ -1,4 +1,4 @@
-/** Single AMM V2 via legacy entry; see AMM_V4_CACHE.md. No sends or hot RPC.
+/** Single AMM V2 via legacy entry; see ../docs/USAGE.md#amm-v4-cache. No sends or hot RPC.
  * npx tsx examples/legacy_amm_v2.ts snapshot.json [--simulate] [--exact-output=N]
  * Buy wraps SOL in WSOL ATA when native_input=true; sell receives WSOL. Never closes ATAs.
  */
