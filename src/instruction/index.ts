@@ -24,3 +24,9 @@ export * from "./raydium_amm_v4_builder";
 export * from "./meteora_damm_v2_builder";
 
 export * from './cpmm_creator_fee';
+
+export * from './pump_upgrade';
+
+export * from "./pump_compact_accounts";
+
+export * from './pump_create_v2';

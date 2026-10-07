@@ -73,6 +73,15 @@ function decodeMintSupply(data: Buffer): bigint | null {
 // ============== Bonding Curve ==============
 
 export interface BondingCurveAccount {
+  creatorFeeBps?: bigint;
+  canEditCreatorFee?: boolean;
+  isHolderReward?: boolean;
+  creatorFee?: bigint;
+  protocolFees?: bigint;
+  depth?: number;
+  initialVirtualQuoteReserves?: bigint;
+  postCompleteBaseOut?: bigint;
+  postCompleteQuoteIn?: bigint;
   discriminator: number;
   account: PublicKey;
   virtualTokenReserves: bigint;
@@ -118,6 +127,16 @@ export function decodePumpFunBondingCurveData(
   const isCashbackCoin = data.readUInt8(offset) === 1;
   const quoteMint = data.length >= 115 ? new PublicKey(data.subarray(83, 115)) : WSOL_TOKEN_ACCOUNT;
   return {
+    creatorFeeBps: data.length>=123 ? data.readBigUInt64LE(115) : 0n,
+    canEditCreatorFee: data.length>123 ? data[123]===1 : false,
+    isHolderReward: data.length>124 ? data[124]===1 : false,
+    creatorFee: data.length>=133 ? data.readBigUInt64LE(125) : 0n,
+    protocolFees: data.length>=141 ? data.readBigUInt64LE(133) : 0n,
+    depth: data.length>141 ? data[141]! : 0,
+    initialVirtualQuoteReserves: data.length>=150 ? data.readBigUInt64LE(142) : 0n,
+    postCompleteBaseOut: data.length>=158 ? data.readBigUInt64LE(150) : 0n,
+    postCompleteQuoteIn: data.length>=166 ? data.readBigUInt64LE(158) : 0n,
+
     discriminator: 0,
     account: bondingCurveAddr,
     virtualTokenReserves,

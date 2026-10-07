@@ -1107,3 +1107,5 @@ export function priceToken1InToken0(
 }
 
 export * from "./dlmm";
+
+export * from "./pump_v3";

@@ -22,6 +22,16 @@ export class BondingCurveAccount {
   isMayhemMode = false;
   isCashbackCoin = false;
   quoteMint = PublicKey.default;
+  creatorFeeBps = 0n;
+  canEditCreatorFee = false;
+  isHolderReward = false;
+  creatorFee = 0n;
+  protocolFees = 0n;
+  depth = 0;
+  initialVirtualQuoteReserves = 0n;
+  postCompleteBaseOut = 0n;
+  postCompleteQuoteIn = 0n;
+
   constructor(fields?: Partial<BondingCurveAccount>) {
     if (fields) Object.assign(this, fields);
     for (const n of [this.virtualTokenReserves, this.virtualSolReserves, this.realTokenReserves, this.realSolReserves, this.tokenTotalSupply]) u64(n);

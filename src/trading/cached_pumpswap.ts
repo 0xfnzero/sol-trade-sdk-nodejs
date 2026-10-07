@@ -37,7 +37,8 @@ export function cachedPumpSwap(snapshot:AccountCacheSnapshot,hint:PoolTradeHint,
  if(!reserves[0]||!reserves[1])throw new Error('PumpSwap reserves are empty');
  const effectiveQuoteReserve=effectiveQuoteReserves(reserves[1]!,pool.virtualQuoteReserves);
  const baseMintSupply=accountBuffer(mints[0]!.data).readBigUInt64LE(36);
- const fees=computePumpSwapFeeBasisPoints(config,pool.creator,pool.baseMint,baseMintSupply,reserves[0]!,effectiveQuoteReserve);
+ const fees=computePumpSwapFeeBasisPoints(config,pool.creator,pool.baseMint,baseMintSupply,reserves[0]!,effectiveQuoteReserve,pool.quoteMint);
+ if(global[940]===1&&(pool.creatorFeeBps??0n)>0n)fees.coinCreatorFeeBasisPoints=pool.creatorFeeBps!;
  const keys=(start:number,n:number)=>Array.from({length:n},(_,i)=>new PublicKey(global.subarray(start+i*32,start+(i+1)*32)));
  snapshot.assertUsable();
  return {poolAddress:hint.pool,pool,baseReserve:reserves[0]!,quoteReserve:reserves[1]!,baseMintSupply,

@@ -890,6 +890,9 @@ export const LEGACY_POOL_SIZE = 244;
  * Matches Rust: src/instruction/utils/pumpswap_types.rs Pool struct
  */
 export interface PumpSwapPool {
+  creatorFeeBps?:bigint;canEditCreatorFee?:boolean;isHolderReward?:boolean;
+  protocolFees?: bigint;
+  creatorFees?: bigint;
   poolBump: number;
   index: number;
   creator: PublicKey;
@@ -914,6 +917,7 @@ export interface PumpSwapFeeConfig {
   flatFees: PumpSwapFeeBasisPoints;
   feeTiers: PumpSwapFeeTier[];
   stableFeeTiers: PumpSwapFeeTier[];
+  exoticFlatFees?: PumpSwapFeeBasisPoints;
 }
 
 /**
@@ -993,6 +997,12 @@ export function decodePoolPayload(data: Buffer): PumpSwapPool | null {
       : BigInt(0);
 
     return {
+      creatorFeeBps:data.length>=261?data.readBigUInt64LE(253):0n,
+      canEditCreatorFee:data.length>=262&&data[261]===1,
+      isHolderReward:data.length>=263&&data[262]===1,
+      protocolFees: data.length>=271?data.readBigUInt64LE(263):0n,
+      creatorFees: data.length>=279?data.readBigUInt64LE(271):0n,
+
       poolBump,
       index,
       creator,
@@ -1109,6 +1119,7 @@ export function decodeFeeConfig(data: Buffer): PumpSwapFeeConfig | null {
       flatFees,
       feeTiers: decodedFeeTiers.tiers,
       stableFeeTiers: decodedStableFeeTiers.tiers,
+      exoticFlatFees: decodedStableFeeTiers.offset===data.length ? {lpFeeBasisPoints:0n,protocolFeeBasisPoints:0n,coinCreatorFeeBasisPoints:0n} : decodeFees(data,decodedStableFeeTiers.offset),
     };
   } catch {
     return null;
@@ -1160,7 +1171,8 @@ export function computePumpSwapFeeBasisPoints(
   baseMint: PublicKey,
   baseMintSupply: bigint | null,
   baseReserve: bigint,
-  quoteReserve: bigint
+  quoteReserve: bigint,
+  quoteMint: PublicKey = new PublicKey("So11111111111111111111111111111111111111112")
 ): PumpSwapFeeBasisPoints {
   if (!feeConfig) {
     return legacyPumpSwapFeeBasisPoints(true);
@@ -1175,7 +1187,13 @@ export function computePumpSwapFeeBasisPoints(
   if (marketCap === null) {
     return legacyPumpSwapFeeBasisPoints(true);
   }
-  return calculateFeeTier(feeConfig.feeTiers, marketCap) ?? feeConfig.flatFees;
+  const native=["11111111111111111111111111111111","So11111111111111111111111111111111111111112","9pan9bMn5HatX4EJdBwg9VgCa7Uz5HL8N1m5D3NdXejP"].includes(quoteMint.toBase58());
+  if(!native&&quoteMint.toBase58()!=="EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v") {
+    const exotic=feeConfig.exoticFlatFees;
+    return exotic&&(exotic.lpFeeBasisPoints!==0n||exotic.protocolFeeBasisPoints!==0n||exotic.coinCreatorFeeBasisPoints!==0n)?exotic:feeConfig.flatFees;
+  }
+  const tiers=!native&&feeConfig.stableFeeTiers.length?feeConfig.stableFeeTiers:feeConfig.feeTiers;
+  return calculateFeeTier(tiers, marketCap) ?? feeConfig.flatFees;
 }
 
 // ===== Async Fetch Functions - from Rust: src/instruction/utils/pumpswap.rs =====
@@ -1372,3 +1390,5 @@ export async function findByQuoteMint(
     return null;
   }
 }
+
+export function isPumpSwapPoolBoosted(pool:PumpSwapPool):boolean {return pool.virtualQuoteReserves+(pool.protocolFees??0n)+(pool.creatorFees??0n)!==0n;}
