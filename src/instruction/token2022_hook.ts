@@ -13,7 +13,10 @@ export function resolveHookAccounts(
   if (context.executeData && (context.executeData.length !== 16 || !context.executeData.subarray(0,8).equals(EXECUTE))) fail('Invalid Execute instruction data');
   let active: PublicKey | undefined;
   for (let offset = 166; offset + 4 <= mintData.length;) {
-    const kind = mintData.readUInt16LE(offset), length = mintData.readUInt16LE(offset + 2), end = offset + 4 + length;
+    const kind = mintData.readUInt16LE(offset);
+    // SPL treats Uninitialized as the end of used TLV data.
+    if (kind === 0) break;
+    const length = mintData.readUInt16LE(offset + 2), end = offset + 4 + length;
     if (end > mintData.length) fail('Truncated mint extension');
     if (kind === 14) {
       if (active || length !== 64) fail('Invalid Hook extension');
