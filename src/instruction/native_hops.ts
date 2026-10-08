@@ -1,5 +1,5 @@
 /** Direct conversion instructions, with explicit amounts and subscription accounts. */
-import { PublicKey, TransactionInstruction } from "@solana/web3.js";
+import { AccountMeta, PublicKey, TransactionInstruction } from "@solana/web3.js";
 const MEMO = new PublicKey("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr");
 const CLMM = new PublicKey("CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK");
 const WHIRLPOOL = new PublicKey("whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc");
@@ -227,4 +227,20 @@ export function buildMeteoraDlmmSwap2(
       i === 8 ||
       i >= 16,
   );
+}
+
+/** Low-level swap with resolved Hook metas; cached routes still fail closed.
+ * Resolve separately for each transfer's actual source and destination. */
+export function buildWhirlpoolSwapV2WithHooks(
+  a: WhirlpoolSwapV2Accounts, args: SwapV2Args & { a_to_b: boolean },
+  hookA: readonly AccountMeta[] = [], hookB: readonly AccountMeta[] = [],
+): TransactionInstruction {
+  const base = buildWhirlpoolSwapV2(a, args), slices: number[] = [], extras: AccountMeta[] = [];
+  for (const [kind, metas] of [[0, hookA], [1, hookB], [6, base.keys.slice(15)]] as const) {
+    if (metas.length > 255) throw Error('Whirlpool remaining slice exceeds u8');
+    if (metas.length) { slices.push(kind, metas.length); extras.push(...metas); }
+  }
+  const info = slices.length ? Buffer.alloc(5 + slices.length) : Buffer.from([0]);
+  if (slices.length) {info[0] = 1; info.writeUInt32LE(slices.length / 2, 1); Buffer.from(slices).copy(info, 5);}
+  return new TransactionInstruction({programId: base.programId, data: Buffer.concat([base.data.subarray(0, 42), info]), keys: [...base.keys.slice(0, 15), ...extras]});
 }

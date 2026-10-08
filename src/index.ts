@@ -3042,3 +3042,6 @@ export {SubscriptionReadiness, CacheNotReadyError, type CacheReadinessState} fro
 export {candidateRoutes} from "./trading/route_candidates";
 
 export * from './instruction/cpmm_creator_fee';
+
+export {resolveHookAccounts} from './instruction/token2022_hook';
+export {buildWhirlpoolSwapV2WithHooks} from './instruction/native_hops';
