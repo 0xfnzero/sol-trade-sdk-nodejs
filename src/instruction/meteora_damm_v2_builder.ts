@@ -563,6 +563,9 @@ export interface MeteoraDynamicFeeStruct {
 }
 
 export interface MeteoraPoolFeesStruct {
+  /** Current fields; legacy padding below remains a raw compatibility overlay. */
+  compoundingFeeBps: number;
+  initSqrtPrice: bigint;
   baseFee: MeteoraBaseFeeStruct;
   protocolFeePercent: number;
   partnerFeePercent: number;
@@ -600,6 +603,12 @@ export interface MeteoraRewardInfo {
 }
 
 export interface MeteoraDammV2Pool {
+  deadLiquidityFeeCheckpoint: bigint;
+  feeVersion: number;
+  creator: PublicKey;
+  tokenAAmount: bigint;
+  tokenBAmount: bigint;
+  layoutVersion: number;
   poolFees: MeteoraPoolFeesStruct;
   tokenAMint: PublicKey;
   tokenBMint: PublicKey;
@@ -662,6 +671,8 @@ export function decodeMeteoraPool(data: Buffer): MeteoraDammV2Pool | null {
  volatilityReference: integer(16),
  });
  const readPoolFeesStruct=(): MeteoraPoolFeesStruct => ({
+ compoundingFeeBps: data.readUInt16LE(46),
+ initSqrtPrice: data.readBigUInt64LE(144) | (data.readBigUInt64LE(152) << 64n),
  baseFee: readBaseFeeStruct(),
  protocolFeePercent: Number(integer(1)),
  partnerFeePercent: Number(integer(1)),
@@ -696,6 +707,12 @@ export function decodeMeteoraPool(data: Buffer): MeteoraDammV2Pool | null {
  cumulativeSecondsWithEmptyLiquidityReward: integer(8),
  });
  const readPool=(): MeteoraDammV2Pool => ({
+ deadLiquidityFeeCheckpoint: data.readBigUInt64LE(400),
+ feeVersion: data[478]!,
+ creator: new PublicKey(data.subarray(640,672)),
+ tokenAAmount: data.readBigUInt64LE(672),
+ tokenBAmount: data.readBigUInt64LE(680),
+ layoutVersion: data[688]!,
  poolFees: readPoolFeesStruct(),
  tokenAMint: new PublicKey(take(32)),
  tokenBMint: new PublicKey(take(32)),
@@ -750,6 +767,7 @@ export async function fetchMeteoraPool(
     return null;
   }
 
-  // Skip 8-byte discriminator
-  return decodeMeteoraPool(account.value.data.slice(8));
+  const data = account.value.data;
+  if (data.length < 8 + METEORA_POOL_SIZE || !data.subarray(0,8).equals(Buffer.from([241,154,109,4,17,177,109,188]))) return null;
+  return decodeMeteoraPool(data.subarray(8));
 }

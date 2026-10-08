@@ -12,8 +12,8 @@ function canonical(v:any):any {
  if(v&&typeof v==='object')return Object.fromEntries(Object.entries(v).map(([k,x])=>[k.replace(/[A-Z]/g,c=>'_'+c.toLowerCase()).replace(/^padding(\d)$/,'padding_$1'),canonical(x)]));
  return v;
 }
-it('decodes every pinned Rust Borsh field without offset or precision loss',()=>{expect(data.length).toBe(1104);expect(canonical(decodeMeteoraPool(data))).toEqual(fixture.expected)});
-it('accepts trailing extension bytes and rejects truncated payload',()=>{expect(canonical(decodeMeteoraPool(Buffer.concat([data,Buffer.alloc(32)])))).toEqual(fixture.expected);expect(decodeMeteoraPool(data.subarray(0,1103))).toBeNull()});
+it('decodes every pinned Rust Borsh field without offset or precision loss',()=>{expect(data.length).toBe(1104);expect(canonical(decodeMeteoraPool(data))).toMatchObject(fixture.expected)});
+it('accepts trailing extension bytes and rejects truncated payload',()=>{expect(canonical(decodeMeteoraPool(Buffer.concat([data,Buffer.alloc(32)])))).toMatchObject(fixture.expected);expect(decodeMeteoraPool(data.subarray(0,1103))).toBeNull()});
 import {buildMeteoraDammV2BuyInstructions,METEORA_DAMM_V2_PROGRAM_ID} from '../src/instruction/meteora_damm_v2_builder';
 import {CONSTANTS} from '../src/constants';
 it('keeps referral slot, readonly payer, idempotent ATAs and exact large SOL funding',()=>{
@@ -22,4 +22,15 @@ it('keeps referral slot, readonly payer, idempotent ATAs and exact large SOL fun
  expect(ixs[0]!.data).toEqual(Buffer.from([1]));expect(ixs[3]!.data).toEqual(Buffer.from([1]));
  expect(ixs[1]!.data.readBigUInt64LE(4)).toBe(amount);
  const swap=ixs.at(-1)!;expect(swap.keys).toHaveLength(14);expect(swap.keys[11]!.pubkey).toEqual(METEORA_DAMM_V2_PROGRAM_ID);expect(swap.keys[11]!.isWritable).toBe(false);expect(swap.keys[8]!.isWritable).toBe(false);
+});
+const current=JSON.parse(readFileSync(new URL('./fixtures/damm_v2_current.json',import.meta.url),'utf8'));
+it('exposes current official DAMM v2 compound fees, reserves and versions',()=>{
+ const p=decodeMeteoraPool(Buffer.from(current.payload,'base64'))!;
+ expect(p.poolFees.compoundingFeeBps).toBe(321);
+ expect(p.poolFees.initSqrtPrice).toBe((1n<<100n)+123n);
+ expect(p.deadLiquidityFeeCheckpoint).toBe(987654321n);
+ expect(p.feeVersion).toBe(1);expect(p.layoutVersion).toBe(1);
+ expect(Array.from(p.creator.toBytes())).toEqual(current.expected.creator);
+ expect(p.tokenAAmount).toBe(9007199254740993n);expect(p.tokenBAmount).toBe(9007199254740995n);
+ expect(p.sqrtPrice).toBe((1n<<64n)+1234n);
 });
