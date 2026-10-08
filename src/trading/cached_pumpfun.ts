@@ -92,7 +92,7 @@ export function prepareCachedPumpFunRouteLeg(snapshot:AccountCacheSnapshot,hint:
  if(!state.quoteTokenProgram.equals(TOKEN_PROGRAM_ID))throw Error('PumpFun V2 quote token program is unsupported');
  if(state.mint.toBase58().endsWith('pump')&&!state.tokenProgram.equals(TOKEN_2022_PROGRAM_ID))throw Error('PumpFun mint suffix and token program mismatch');
  const raw=Buffer.from(snapshot.get(hint.pool,context,PUMPFUN_PROGRAM_ID).data);
- if(raw.length>=125&&raw[124]!==0)throw Error('PumpFun holder-reward account layout is not yet verified');
+ if(raw.length>=125&&raw[124]!==0){const holder=PublicKey.findProgramAddressSync([Buffer.from('holder-rewards'),state.mint.toBuffer()],PUMPFUN_PROGRAM_ID)[0];if(raw[124]!==1 || !holder.equals(state.curve.creator))throw Error('Invalid PumpFun holder-reward creator');}
  const config=getPumpFunFeeSharingConfigPda(state.mint),sharing=snapshot.getOptional(config,context,PUMPFUN_FEE_PROGRAM);
  const active=sharing?decodePumpFunSharingCreatorVault(sharing.data,state.mint):undefined;
  const creatorVault=active??getCreatorVaultPda(state.curve.creator);
