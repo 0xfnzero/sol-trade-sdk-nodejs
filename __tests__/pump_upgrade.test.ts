@@ -97,6 +97,7 @@ import createFixture from "../tests/fixtures/pump_upgrade/create.json";
 import { buildPumpCreateV2Instruction } from "../src/instruction/pump_create_v2";
 import {
   derivePumpV3Accounts,
+  derivePumpSwapV2Accounts,
   derivePumpMultiHopAccounts,
   derivePumpCoinQuoteCreateAccounts,
   PumpMultiHop,
@@ -224,5 +225,96 @@ it("builds the six instructions successfully simulated on current mainnet", () =
         writable: a.isWritable,
       })),
     ).toEqual(c.metas);
+  }
+});
+
+it("normalizes decoded native aliases without mutating route state", () => {
+  const f = JSON.parse(
+    readFileSync("tests/fixtures/pump_upgrade/native_aliases.json", "utf8"),
+  );
+  const user = new PublicKey(Buffer.alloc(32, 1)),
+    a = new PublicKey(Buffer.alloc(32, 2)),
+    b = new PublicKey(Buffer.alloc(32, 3));
+  const token = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"),
+    token2022 = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"),
+    wsol = new PublicKey("So11111111111111111111111111111111111111112");
+  const params = (
+    baseMint: PublicKey,
+    quoteMint: PublicKey,
+    quoteTokenProgram: PublicKey,
+  ) => ({
+    user,
+    baseMint,
+    quoteMint,
+    baseTokenProgram: token2022,
+    quoteTokenProgram,
+    buybackRecipient: user,
+  });
+  const hop = (
+    baseMint: PublicKey,
+    quoteMint: PublicKey,
+    quoteTokenProgram: PublicKey,
+  ): PumpMultiHop => {
+    const p = derivePumpV3Accounts(
+      params(baseMint, quoteMint.equals(a) ? a : wsol, quoteTokenProgram),
+    );
+    return {
+      venue: "curve",
+      baseMint,
+      quoteMint,
+      address: p.bonding_curve!,
+      baseVault: p.associated_base_bonding_curve!,
+      quoteVault: p.associated_quote_bonding_curve!,
+      baseTokenProgram: token2022,
+      quoteTokenProgram,
+      mayhem: false,
+      cashback: false,
+    };
+  };
+  const metas = (items: import("@solana/web3.js").AccountMeta[]) =>
+    items.map((m) => ({
+      pubkey: m.pubkey.toBase58(),
+      signer: m.isSigner,
+      writable: m.isWritable,
+    }));
+  for (const c of f.cases) {
+    const alias = new PublicKey(c.alias),
+      p = params(a, alias, token);
+    expect(
+      metas(
+        buildPumpUpgradeInstruction("pump_buy_v3", derivePumpV3Accounts(p), [
+          7n,
+          9n,
+        ]).keys,
+      ),
+    ).toEqual(c.v3);
+    const parent = hop(a, alias, token),
+      child = hop(b, a, token2022);
+    for (const [name, hops, input, output] of [
+      ["buy", [parent, child], alias, b],
+      ["sell", [child, parent], b, alias],
+    ] as const) {
+      const r = derivePumpMultiHopAccounts(user, input, output, user, hops);
+      expect(
+        metas(
+          buildPumpUpgradeInstruction(
+            "pump_amm_multi_hop_swap",
+            r.accounts,
+            [7n, 9n],
+            undefined,
+            r.remaining,
+          ).keys,
+        ),
+      ).toEqual(c[name]);
+    }
+    expect(parent.quoteMint).toBe(alias);
+    expect(p.quoteMint).toBe(alias);
+    expect(
+      metas(derivePumpCoinQuoteCreateAccounts(b, parent, 0, 1, [])),
+    ).toEqual(c.create);
+    const pool = { pool: user, baseVault: a, quoteVault: b };
+    expect(derivePumpSwapV2Accounts({ ...p, ...pool })).toEqual(
+      derivePumpSwapV2Accounts({ ...p, quoteMint: wsol, ...pool }),
+    );
   }
 });

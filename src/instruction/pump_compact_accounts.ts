@@ -9,6 +9,21 @@ export const COMPACT_AMM_PROGRAM = new PublicKey(
 const FEES = new PublicKey("pfeeUxB6jkeY1Hxd7CsFCAjcbHA9rWtchMGdZ6VojVZ"),
   ATA = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"),
   WSOL = new PublicKey("So11111111111111111111111111111111111111112");
+const normalizeQuote = (mint: PublicKey): PublicKey =>
+  mint.equals(PublicKey.default) ||
+  mint.equals(new PublicKey("So11111111111111111111111111111111111111111"))
+    ? WSOL
+    : mint;
+const normalizeHop = (hop: PumpMultiHop): PumpMultiHop => {
+  const quoteMint = normalizeQuote(hop.quoteMint);
+  return {
+    ...hop,
+    quoteMint,
+    quoteTokenProgram: quoteMint.equals(WSOL)
+      ? new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
+      : hop.quoteTokenProgram,
+  };
+};
 const pda = (program: PublicKey, seed: string, key?: PublicKey) =>
   PublicKey.findProgramAddressSync(
     [Buffer.from(seed), ...(key ? [key.toBuffer()] : [])],
@@ -33,6 +48,7 @@ export interface PumpCompactAccountParams {
 export function derivePumpV3Accounts(
   p: PumpCompactAccountParams,
 ): PumpUpgradeAccounts {
+  p = { ...p, quoteMint: normalizeQuote(p.quoteMint) };
   if (p.cashback) throw new Error("Cashback coins require Pump v2");
   if (p.complete) throw new Error("BondingCurveComplete");
   const program = COMPACT_PUMP_PROGRAM,
@@ -71,6 +87,7 @@ export function derivePumpSwapV2Accounts(
     quoteVault: PublicKey;
   },
 ): PumpUpgradeAccounts {
+  p = { ...p, quoteMint: normalizeQuote(p.quoteMint) };
   if (p.cashback) throw new Error("Cashback pools require PumpSwap v1");
   const program = COMPACT_AMM_PROGRAM;
   return {
@@ -129,6 +146,9 @@ export function derivePumpMultiHopAccounts(
     throw new Error(
       "Route requires hops and v0 with ALT for four or more hops",
     );
+  inputMint = normalizeQuote(inputMint);
+  outputMint = normalizeQuote(outputMint);
+  hops = hops.map(normalizeHop);
   let current = inputMint,
     side: boolean | undefined;
   const remaining: import("@solana/web3.js").AccountMeta[] = [];
@@ -223,6 +243,7 @@ export function derivePumpCoinQuoteCreateAccounts(
   maxDepth: number,
   listedQuoteMints: readonly PublicKey[],
 ): import("@solana/web3.js").AccountMeta[] {
+  quote = normalizeHop(quote);
   if (
     !Number.isInteger(depth) ||
     !Number.isInteger(maxDepth) ||
