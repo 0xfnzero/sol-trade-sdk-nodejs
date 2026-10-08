@@ -268,7 +268,7 @@ export function buildMeteoraDammV2BuyInstructions(
   }
 
   // Determine swap direction
-  const isAIn = tokenAMint.equals(WSOL_TOKEN_ACCOUNT) || tokenAMint.equals(USDC_TOKEN_ACCOUNT);
+  const isAIn = requestedOutputMint ? isMintMatch(requestedOutputMint, tokenBMint) : tokenAMint.equals(WSOL_TOKEN_ACCOUNT) || tokenAMint.equals(USDC_TOKEN_ACCOUNT);
 
   const inputMint = isAIn ? tokenAMint : tokenBMint;
   const outputMint = isAIn ? tokenBMint : tokenAMint;
@@ -427,7 +427,7 @@ export function buildMeteoraDammV2SellInstructions(
   }
 
   // Determine swap direction (selling token for WSOL/USDC)
-  const isAIn = tokenBMint.equals(WSOL_TOKEN_ACCOUNT) || tokenBMint.equals(USDC_TOKEN_ACCOUNT);
+  const isAIn = requestedInputMint ? isMintMatch(requestedInputMint, tokenAMint) : tokenBMint.equals(WSOL_TOKEN_ACCOUNT) || tokenBMint.equals(USDC_TOKEN_ACCOUNT);
 
   const inputMint = isAIn ? tokenAMint : tokenBMint;
   const outputMint = isAIn ? tokenBMint : tokenAMint;

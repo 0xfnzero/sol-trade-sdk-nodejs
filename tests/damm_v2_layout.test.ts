@@ -34,3 +34,22 @@ it('exposes current official DAMM v2 compound fees, reserves and versions',()=>{
  expect(p.tokenAAmount).toBe(9007199254740993n);expect(p.tokenBAmount).toBe(9007199254740995n);
  expect(p.sqrtPrice).toBe((1n<<64n)+1234n);
 });
+
+import {buildMeteoraDammV2SellInstructions} from '../src/instruction/meteora_damm_v2_builder';
+import {getAssociatedTokenAddressSync} from '../src/common/spl-token';
+it('uses explicit SOL/USDC directions on both pool orderings and rejects same-side mints',()=>{
+ const pk=(n:number)=>new PublicKey(new Uint8Array(32).fill(n)),payer=pk(42);
+ for(const [a,b] of [[CONSTANTS.WSOL_TOKEN_ACCOUNT,CONSTANTS.USDC_TOKEN_ACCOUNT],[CONSTANTS.USDC_TOKEN_ACCOUNT,CONSTANTS.WSOL_TOKEN_ACCOUNT]]) {
+  for(const sell of [false,true]) {
+   const inputMint=sell?CONSTANTS.USDC_TOKEN_ACCOUNT:CONSTANTS.WSOL_TOKEN_ACCOUNT;
+   const outputMint=sell?CONSTANTS.WSOL_TOKEN_ACCOUNT:CONSTANTS.USDC_TOKEN_ACCOUNT;
+   const params={payer,inputMint,outputMint,inputAmount:10000n,fixedOutputAmount:1n,createInputMintAta:false,createOutputMintAta:false,
+    protocolParams:{pool:pk(1),tokenAMint:a!,tokenBMint:b!,tokenAVault:pk(3),tokenBVault:pk(4),tokenAProgram:CONSTANTS.TOKEN_PROGRAM,tokenBProgram:CONSTANTS.TOKEN_PROGRAM,swapMode:0}};
+   const builder=sell?buildMeteoraDammV2SellInstructions:buildMeteoraDammV2BuyInstructions;
+   const swap=builder(params).at(-1)!;
+   expect(swap.keys[2]!.pubkey).toEqual(getAssociatedTokenAddressSync(inputMint,payer,true));
+   expect(swap.keys[3]!.pubkey).toEqual(getAssociatedTokenAddressSync(outputMint,payer,true));
+   expect(()=>builder({...params,outputMint:inputMint})).toThrow();
+  }
+ }
+});
