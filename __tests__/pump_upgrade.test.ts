@@ -196,3 +196,33 @@ it("decodes official QuoteControl header and validates child initial reserves", 
     pumpCoinInitialQuoteReserves(123n, 1000n, 10n, 1000n, 100n, 100n, 0, 1),
   ).toThrow("QuoteReservesOutOfRange");
 });
+
+it("builds the six instructions successfully simulated on current mainnet", () => {
+  const f = JSON.parse(
+    readFileSync(
+      "tests/fixtures/pump_upgrade/simulated_instructions.json",
+      "utf8",
+    ),
+  );
+  for (const c of f.cases) {
+    const ix = buildPumpUpgradeInstruction(
+      c.name,
+      Object.fromEntries(
+        Object.entries(c.accounts).map(([k, v]) => [
+          k,
+          new PublicKey(v as string),
+        ]),
+      ),
+      c.args.map((n: string) => BigInt(n)),
+    );
+    expect(ix.programId.toBase58()).toBe(c.program);
+    expect(ix.data.toString("hex")).toBe(c.data);
+    expect(
+      ix.keys.map((a) => ({
+        pubkey: a.pubkey.toBase58(),
+        signer: a.isSigner,
+        writable: a.isWritable,
+      })),
+    ).toEqual(c.metas);
+  }
+});
