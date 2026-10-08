@@ -84,6 +84,8 @@ export interface PreparedCachedTrade {
   requiredNativeLamports: bigint;
 }
 export function prepareCachedTrade(r: CachedTradeRequest): PreparedCachedTrade {
+  if (r.slippageBps !== undefined && (!Number.isInteger(r.slippageBps) || r.slippageBps < 0 || r.slippageBps >= 10000))
+    throw Error("Invalid cached trade slippage: expected integer basis points in [0, 10000)");
   if (r.tradeType !== "Buy" && r.tradeType !== "Sell")
     throw Error("Cached trade requires independent Buy or Sell");
   if(!r.snapshot)throw Error("Missing frozen account snapshot");

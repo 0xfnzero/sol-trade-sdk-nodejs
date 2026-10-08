@@ -49,3 +49,7 @@ it('rejects continuity interruption after state validation',()=>{
  const r=request(()=>{if(++checks===7)throw Error('late continuity interruption')});
  expect(()=>prepareExplicitDammV2Route(r.snapshot!,r.hints!,r.context!,r.unixTimestamp!,r.payer,r.amount,r.fixedOutputAmount)).toThrow('late continuity');
 });
+
+it.each([-1,10000,10001,1.5,NaN,Infinity,true as any])('explicit DAMM threshold rejects invalid slippage %s',(slippageBps)=>{
+ expect(()=>prepareCachedTrade({...request(),slippageBps})).toThrow(/slippage/);
+});
