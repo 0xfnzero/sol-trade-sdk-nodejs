@@ -59,7 +59,7 @@ it.each([1, 2, 3, 4, 64])("accepts %i zero padding bytes", (padding) => {
   const d = Buffer.concat([mint([[6, Buffer.from([1])], [19, Buffer.alloc(0)]]), Buffer.alloc(padding)]);
   expect(tokenTransferFeeForEpoch(d, token, 1n).basisPoints).toBe(0);
 });
-it.each([[0, 1], [0, 0, 1, 0], [6, 0, 1], [6, 0, 2, 0, 1]])("rejects malformed tail %j", (...tail) => {
+it.each([[0, 1], [6, 0, 1], [6, 0, 2, 0, 1]])("rejects malformed tail %j", (...tail) => {
   expect(() => tokenTransferFeeForEpoch(Buffer.concat([mint([]), Buffer.from(tail)]), token, 1n)).toThrow();
 });
 it.each([6, 19])("rejects duplicate extension %i including empty metadata", (kind) => {

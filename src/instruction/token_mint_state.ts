@@ -53,12 +53,15 @@ export function tokenTransferFeeForEpoch(
   const extensions = new Map<number, Buffer>();
   let offset = 166;
   while (offset < d.length) {
-    if (d[offset] === 0 && d.subarray(offset).every((b) => b === 0)) break;
+    // Match SPL: one realloc byte or Uninitialized ends the used TLV data.
+    // The terminator's length and subsequent allocation bytes are unused.
+    if (offset + 2 > d.length) break;
+    const type = d.readUInt16LE(offset);
+    if (type === 0) break;
     if (offset + 4 > d.length) throw new Error("Truncated mint extension");
-    const type = d.readUInt16LE(offset),
-      length = d.readUInt16LE(offset + 2);
+    const length = d.readUInt16LE(offset + 2);
     offset += 4;
-    if (!type || extensions.has(type) || offset + length > d.length)
+    if (extensions.has(type) || offset + length > d.length)
       throw new Error("Invalid/duplicate mint extension");
     if (type !== 19 && !lengths.has(type))
       throw new Error("Unsupported mint extension: " + type);
