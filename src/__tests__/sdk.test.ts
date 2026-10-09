@@ -1028,6 +1028,69 @@ describe('TradingClient execution parity', () => {
     expect(client.connection.sendRawTransaction).not.toHaveBeenCalled();
   });
 
+  it.each([
+    [TradeType.Buy, 99_999_999, 0.1, false],
+    [TradeType.Buy, 100_000_000, 0.1, true],
+    [TradeType.Sell, 99_999_999, 0.1, false],
+    [TradeType.Sell, 100_000_001, 0.1, true],
+    [TradeType.Buy, 99_999, 0.0001, false],
+    [TradeType.Buy, 100_000, 0.0001, true],
+    [TradeType.Buy, 70_000_000, 0.07, true],
+    [TradeType.Buy, 0, undefined, true],
+    [TradeType.Buy, 0, 0, true],
+  ])('filters configured minimum before tip lookup and sending (%s, %s, %s)', async (tradeType, tip, minimum, sends) => {
+    const client = new (TradingClient as any)(Keypair.generate(),
+      TradeConfigBuilder.create('https://rpc.example').swqosConfigs([
+        { type: SwqosType.Jito, region: SwqosRegion.Frankfurt, apiKey: 'jito', minTipSol: minimum },
+      ]).build());
+    const relay = fakeRuntimeSwqosClient('relay');
+    const rpc = fakeRuntimeSwqosClient('rpc');
+    client.getSwqosClient = vi.fn((_: unknown, cfg: { type: SwqosType }) =>
+      cfg.type === SwqosType.Default ? rpc : relay);
+    const result = await client.executeTransaction(
+      [new TransactionInstruction({ programId: PublicKey.default, keys: [], data: Buffer.from([1]) })],
+      'p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV', undefined, false, false,
+      { tradeType, dexType: DexType.PumpFun, waitForAllSubmits: true,
+        gasFeeStrategy: { buyComputeUnits: 200_000, sellComputeUnits: 200_000,
+          buyPriorityFee: 0, sellPriorityFee: 0,
+          buyTipLamports: tradeType === TradeType.Buy ? tip : 1_000_000_000,
+          sellTipLamports: tradeType === TradeType.Sell ? tip : 1_000_000_000 } });
+    expect(result.success).toBe(true);
+    expect(relay.sendTransaction).toHaveBeenCalledTimes(sends ? 1 : 0);
+    expect(relay.getTipAccount).toHaveBeenCalledTimes(sends ? 1 : 0);
+    expect(rpc.sendTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([-0.0001, NaN, Infinity, Number.MAX_VALUE])('rejects invalid minimum tip %s', (minTipSol) => {
+    expect(() => TradeConfigBuilder.create('https://rpc.example').swqosConfigs([
+      { type: SwqosType.Jito, region: SwqosRegion.Frankfurt, apiKey: 'jito', minTipSol },
+    ])).toThrow('minTipSol must be a finite non-negative SOL amount');
+  });
+
+  it('filters each strategy row before building and keeps eligible lanes', async () => {
+    const strategy = new GasFeeStrategy();
+    strategy.set(SwqosType.Jito, TradeType.Sell, GasFeeStrategyType.LowTipHighCuPrice, 200_000, 0, 0.099999999);
+    strategy.set(SwqosType.Jito, TradeType.Sell, GasFeeStrategyType.HighTipLowCuPrice, 200_000, 0, 0.1);
+    strategy.set(SwqosType.Default, TradeType.Sell, GasFeeStrategyType.Normal, 200_000, 0, 0);
+    const client = new (TradingClient as any)(Keypair.generate(),
+      TradeConfigBuilder.create('https://rpc.example').swqosConfigs([
+        { type: SwqosType.Jito, region: SwqosRegion.Frankfurt, apiKey: 'jito', minTipSol: 0.1 },
+      ]).build());
+    client._config.gasStrategy = strategy;
+    const relay = fakeRuntimeSwqosClient('relay');
+    const rpc = fakeRuntimeSwqosClient('rpc');
+    client.getSwqosClient = vi.fn((_: unknown, cfg: { type: SwqosType }) =>
+      cfg.type === SwqosType.Default ? rpc : relay);
+    const result = await client.executeTransaction(
+      [new TransactionInstruction({ programId: PublicKey.default, keys: [], data: Buffer.from([1]) })],
+      'p2Yicb86aZig616Eav2VWG9vuXR5mEqhtzshZYBxzsV', undefined, false, false,
+      { tradeType: TradeType.Sell, dexType: DexType.PumpFun, waitForAllSubmits: true });
+    expect(result.success).toBe(true);
+    expect(relay.sendTransaction).toHaveBeenCalledTimes(1);
+    expect(relay.getTipAccount).toHaveBeenCalledTimes(1);
+    expect(rpc.sendTransaction).toHaveBeenCalledTimes(1);
+  });
+
   it('requires durable nonce for multiple non-default SWQOS tasks on sell', async () => {
     const payer = Keypair.generate();
     const client = new (TradingClient as any)(

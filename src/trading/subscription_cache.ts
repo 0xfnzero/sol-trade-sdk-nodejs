@@ -497,12 +497,28 @@ export class SubscriptionAccountCache {
       writeVersion: e.write_version,
     });
   }
-  readySnapshot(readiness: SubscriptionReadiness): AccountCacheSnapshot {
+  /** Materialize dynamic key iterables before reading any account version. */
+  private snapshotAccounts(keys?: Iterable<PublicKey>): ReadonlyMap<string, CachedAccount> {
+    if (keys === undefined) return this.#accounts;
+    const names = new Set(Array.from(keys, key => key.toBase58()));
+    this.assertNoConflict();
+    const selected = new Map<string, CachedAccount>();
+    for (const name of names) {
+      const account = this.#accounts.get(name);
+      if (!account) throw Error("Missing cached account: " + name);
+      selected.set(name, account);
+    }
+    return selected;
+  }
+  /** Freeze only pre-discovered dependencies when keys are provided; no RPC. */
+  readySnapshot(readiness: SubscriptionReadiness, keys?: Iterable<PublicKey>): AccountCacheSnapshot {
+    const accounts = this.snapshotAccounts(keys);
     this.assertNoConflict();
     const ready = readiness.guard();
-    return new AccountCacheSnapshot(this.#accounts, () => { this.assertNoConflict(); ready(); });
+    return new AccountCacheSnapshot(accounts, () => { this.assertNoConflict(); ready(); });
   }
-  snapshot(): AccountCacheSnapshot {
-    return new AccountCacheSnapshot(this.#accounts, () => this.assertNoConflict());
+  /** O(selected account bytes), or O(all account bytes) when keys are omitted. */
+  snapshot(keys?: Iterable<PublicKey>): AccountCacheSnapshot {
+    return new AccountCacheSnapshot(this.snapshotAccounts(keys), () => this.assertNoConflict());
   }
 }

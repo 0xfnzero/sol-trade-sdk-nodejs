@@ -58,14 +58,20 @@
 
 Trading SDK language versions and related Rust SDKs:
 
-| Language | Repository | Description |
-|----------|------------|-------------|
-| **Rust** | [sol-trade-sdk](https://github.com/0xfnzero/sol-trade-sdk) | Ultra-low latency with zero-copy optimization |
-| **Node.js** | [sol-trade-sdk-nodejs](https://github.com/0xfnzero/sol-trade-sdk-nodejs) | TypeScript/JavaScript for Node.js |
-| **Python** | [sol-trade-sdk-python](https://github.com/0xfnzero/sol-trade-sdk-python) | Async/await native support |
-| **Go** | [sol-trade-sdk-golang](https://github.com/0xfnzero/sol-trade-sdk-golang) | Concurrent-safe with goroutine support |
-| **Rust** | [sol-parser-sdk](https://github.com/0xfnzero/sol-parser-sdk) | Solana DEX transaction and account event parsing |
-| **Rust** | [sol-shred-sdk](https://github.com/0xfnzero/sol-shred-sdk) | Raw Solana shred decoding and ShredStream DEX event parsing |
+| Language | Repository | Description | Version |
+|----------|------------|-------------|---------|
+| **Rust** | [sol-trade-sdk](https://github.com/0xfnzero/sol-trade-sdk) | Ultra-low latency with zero-copy optimization | `v6.0.0` |
+| **Node.js** | [sol-trade-sdk-nodejs](https://github.com/0xfnzero/sol-trade-sdk-nodejs) | TypeScript/JavaScript for Node.js | `v0.1.8` |
+| **Python** | [sol-trade-sdk-python](https://github.com/0xfnzero/sol-trade-sdk-python) | Async/await native support | `v0.1.8` |
+| **Go** | [sol-trade-sdk-golang](https://github.com/0xfnzero/sol-trade-sdk-golang) | Concurrent-safe with goroutine support | `v0.1.9` |
+| **Rust** | [sol-parser-sdk](https://github.com/0xfnzero/sol-parser-sdk) | Solana DEX transaction and account event parsing | `v0.7.11` |
+| **Rust** | [sol-shred-sdk](https://github.com/0xfnzero/sol-shred-sdk) | Raw Solana shred decoding and ShredStream DEX event parsing | `v4.0.3` |
+
+## v0.1.8 — Signed transaction and hot-path hardening
+
+Adds optional `minTipSol` decimal SOL thresholds and filters ineligible provider lanes before building, signing or sending. Hardens deadlines, blockhash/nonce lifecycle, cache selection and transfer-fee rounding. Uses native Ed25519 for V1 signing with signer validation and immutable message snapshots; adds signed wire and ALT regressions.
+
+Validation includes local CPU benchmarks and offline signed-bank scenarios. Measured hot paths use cached inputs without RPC. Benchmarks do not establish production network or transaction-landing latency. No funded mainnet transactions were broadcast.
 
 ## What This SDK Is For
 
@@ -80,7 +86,7 @@ Trading SDK language versions and related Rust SDKs:
 
 ## 🔖 Current Release
 
-**npm package:** `sol-trade-sdk@0.1.7`
+**npm package:** `sol-trade-sdk@0.1.8`
 
 This release refreshes PumpFun V2 and USDC quote-pool handling, keeps the default RPC submit lane active alongside SWQoS lanes, and aligns Raydium CPMM fixed-output swaps with the on-chain `swap_base_out` instruction. Trade execution requires a caller-supplied `recentBlockhash` or durable nonce; hot-path execution does not query RPC for blockhash, account, or balance data.
 
@@ -145,11 +151,11 @@ Add to your `package.json`:
 ### Use NPM
 
 ```bash
-npm install sol-trade-sdk@0.1.7
+npm install sol-trade-sdk@0.1.8
 # or
-yarn add sol-trade-sdk@0.1.7
+yarn add sol-trade-sdk@0.1.8
 # or
-pnpm add sol-trade-sdk@0.1.7
+pnpm add sol-trade-sdk@0.1.8
 ```
 
 ## 🛠️ Usage Examples
@@ -437,3 +443,16 @@ Full cross-language API parity is still in progress. See the [API migration guid
 
 
 DAMM v2 单跳缓存准备与显式模拟见 [cached_damm_v2](examples/cached_damm_v2.ts)。当前要求调用方显式最低输出，预计到账未知；SOL 与已有 WSOL 使用不同账户结算。PumpFun 当前配置读取尚不代表完整费用报价或 cached factory。
+
+### Optional per-route minimum tip
+
+Each SWQOS route can optionally set a minimum tip in SOL, accepting decimals such as `0.0001` (internally rounded to whole lamports). Buy/sell fee lanes below this threshold are skipped before building the route tip instruction, signing or submitting its transaction. Equality is accepted. Omitting the option preserves existing behavior; zero accepts non-negative tips. This limit applies independently of the existing `check_min_tip` / `checkMinTip` option, whose behavior is preserved. Other eligible routes, including default RPC, still participate.
+
+```typescript
+const provider: SwqosConfig = {
+  type: SwqosType.Jito,
+  apiKey: 'your_uuid',
+  region: SwqosRegion.Frankfurt,
+  minTipSol: 0.0001, // SOL; omit to preserve existing behavior
+};
+```

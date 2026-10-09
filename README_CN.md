@@ -58,14 +58,14 @@
 
 交易 SDK 的各语言版本及相关 Rust SDK：
 
-| 语言 | 仓库 | 描述 |
+| 语言 | 仓库 | 描述 | 版本 |
 |------|------|------|
-| **Rust** | [sol-trade-sdk](https://github.com/0xfnzero/sol-trade-sdk) | 超低延迟，零拷贝优化 |
-| **Node.js** | [sol-trade-sdk-nodejs](https://github.com/0xfnzero/sol-trade-sdk-nodejs) | TypeScript/JavaScript，Node.js 支持 |
-| **Python** | [sol-trade-sdk-python](https://github.com/0xfnzero/sol-trade-sdk-python) | 原生 async/await 支持 |
-| **Go** | [sol-trade-sdk-golang](https://github.com/0xfnzero/sol-trade-sdk-golang) | 并发安全，goroutine 支持 |
-| **Rust** | [sol-parser-sdk](https://github.com/0xfnzero/sol-parser-sdk) | Solana DEX 交易与账户事件解析 |
-| **Rust** | [sol-shred-sdk](https://github.com/0xfnzero/sol-shred-sdk) | Solana 原始 shred 解码与 ShredStream DEX 事件解析 |
+| **Rust** | [sol-trade-sdk](https://github.com/0xfnzero/sol-trade-sdk) | 超低延迟，零拷贝优化 | `v6.0.0` |
+| **Node.js** | [sol-trade-sdk-nodejs](https://github.com/0xfnzero/sol-trade-sdk-nodejs) | TypeScript/JavaScript，Node.js 支持 | `v0.1.8` |
+| **Python** | [sol-trade-sdk-python](https://github.com/0xfnzero/sol-trade-sdk-python) | 原生 async/await 支持 | `v0.1.8` |
+| **Go** | [sol-trade-sdk-golang](https://github.com/0xfnzero/sol-trade-sdk-golang) | 并发安全，goroutine 支持 | `v0.1.9` |
+| **Rust** | [sol-parser-sdk](https://github.com/0xfnzero/sol-parser-sdk) | Solana DEX 交易与账户事件解析 | `v0.7.11` |
+| **Rust** | [sol-shred-sdk](https://github.com/0xfnzero/sol-shred-sdk) | Solana 原始 shred 解码与 ShredStream DEX 事件解析 | `v4.0.3` |
 
 ## 这个 SDK 适合什么场景
 
@@ -80,9 +80,15 @@
 
 ## 🔖 当前版本
 
-**npm package:** `sol-trade-sdk@0.1.7`
+**npm package:** `sol-trade-sdk@0.1.8`
 
 本版本刷新 PumpFun V2 与 USDC quote 池处理逻辑，确保默认 RPC 提交通道会和 SWQoS 通道一起发出，并将 Raydium CPMM fixed-output 交易对齐到链上 `swap_base_out` 指令。交易执行必须由调用方传入 `recentBlockhash` 或 durable nonce；热路径不会查询 RPC 获取 blockhash、账户或余额数据。
+
+## v0.1.8 — Signed transaction and hot-path hardening
+
+Adds optional `minTipSol` decimal SOL thresholds and filters ineligible provider lanes before building, signing or sending. Hardens deadlines, blockhash/nonce lifecycle, cache selection and transfer-fee rounding. Uses native Ed25519 for V1 signing with signer validation and immutable message snapshots; adds signed wire and ALT regressions.
+
+Validation includes local CPU benchmarks and offline signed-bank scenarios. Measured hot paths use cached inputs without RPC. Benchmarks do not establish production network or transaction-landing latency. No funded mainnet transactions were broadcast.
 
 ## v0.1.7 — CPMM creator-fee 对齐
 
@@ -143,11 +149,11 @@ npm run build
 ### 使用 NPM
 
 ```bash
-npm install sol-trade-sdk@0.1.7
+npm install sol-trade-sdk@0.1.8
 # 或
-yarn add sol-trade-sdk@0.1.7
+yarn add sol-trade-sdk@0.1.8
 # 或
-pnpm add sol-trade-sdk@0.1.7
+pnpm add sol-trade-sdk@0.1.8
 ```
 
 ## 🛠️ 使用示例
@@ -427,3 +433,16 @@ MIT License
 ## API 兼容性
 
 完整跨语言 API 对齐仍在进行；公开行为和支持边界见 [API 迁移说明](docs/USAGE.md#api-compatibility)，使用方法见 examples 目录。
+
+### 可选的通道最低小费
+
+每个 SWQOS 通道可选配置最低小费，单位为 SOL，支持 `0.0001` 等小数（内部按最接近的整数 lamports 比较）。每条买入/卖出费用策略的小费低于配置门槛时，在构建该通道的小费指令、签名和发送交易之前直接跳过；等于门槛时正常发送。不配置则不启用此新增过滤，保留原有行为；配置为 0 不会过滤非负小费。该设置独立于现有的 `check_min_tip` / `checkMinTip`，已有的全局检查行为不变。其他符合条件的通道（包括默认 RPC）仍正常参与。
+
+```typescript
+const provider: SwqosConfig = {
+  type: SwqosType.Jito,
+  apiKey: 'your_uuid',
+  region: SwqosRegion.Frankfurt,
+  minTipSol: 0.0001, // SOL; omit to preserve existing behavior
+};
+```

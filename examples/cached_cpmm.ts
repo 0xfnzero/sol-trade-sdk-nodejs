@@ -41,6 +41,9 @@ async function main() {
       writeVersion: BigInt(input[name].write_version),
     });
   }
+  // This fixed CPMM quote/build reads all six identities. Collect dependencies
+  // in the background before a live trade trigger; other pools remain unfrozen.
+  const dependencyKeys = names.map(name => account(name).pubkey);
   // Saved replay uses its account slot; live callers supply a subscribed Clock slot.
   const latest = names.reduce(
     (s, n) => (BigInt(input[n].slot) > s ? BigInt(input[n].slot) : s),
@@ -62,7 +65,7 @@ async function main() {
     input.base_in ? quote.pubkey : base.pubkey,
   );
   const { quote: result, instruction: swap } = cache
-    .snapshot()
+    .snapshot(dependencyKeys)
     .prepareCpmm(
       hint,
       context,

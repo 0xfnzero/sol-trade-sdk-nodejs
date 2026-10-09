@@ -1,3 +1,4 @@
+import { withDeadline } from "./common/deadline";
 import {reconcileMayhemModeForTrade} from "./instruction/pumpfun_builder";
 import {BondingCurveAccount as NativeBondingCurveAccount} from './common/bonding_curve';
 import type {Signer} from "@solana/web3.js";
@@ -219,6 +220,9 @@ export enum AstralaneTransport {
  * SWQOS service configuration
  */
 export interface SwqosConfig {
+  /** Optional route minimum in SOL (e.g. 0.0001), rounded to whole lamports. Checked before building,
+   * independently of checkMinTip; omitted means no additional filtering. */
+  minTipSol?: number;
   type: SwqosType;
   region: SwqosRegion;
   apiKey: string;
@@ -246,6 +250,13 @@ export interface TradeRiskGate {
 }
 
 function normalizeSwqosConfigs(rpcUrl: string, configs: SwqosConfig[]): SwqosConfig[] {
+  for (const cfg of configs) {
+    if (cfg.minTipSol !== undefined &&
+        (!Number.isFinite(cfg.minTipSol) || cfg.minTipSol < 0 ||
+         !Number.isSafeInteger(Math.round(cfg.minTipSol * 1_000_000_000)))) {
+      throw new Error('minTipSol must be a finite non-negative SOL amount within the safe lamport range');
+    }
+  }
   const out = [...configs];
   if (!out.some((c) => c.type === SwqosType.Default)) {
     out.push({
@@ -1438,6 +1449,9 @@ function buildSignedVersionedTransaction(
   }).compileToV0Message(
     addressLookupTableAccount != null ? [addressLookupTableAccount] : []
   );
+  if (messageV0.header.numRequiredSignatures !== 1 || !messageV0.staticAccountKeys[0]?.equals(payer.publicKey)) {
+    throw new TradeError(109, 'Transaction requires unsupported additional signers; this builder signs only the payer');
+  }
   const tx = new VersionedTransaction(messageV0);
   tx.sign([payer]);
   let serializedLen: number;
@@ -2634,6 +2648,15 @@ export class TradingClient {
         this._logEnabled,
         swqosClientForConfig
       );
+      // Apply the explicit route limit to each resolved buy/sell fee lane before
+      // tip account lookup, instruction construction, signing, or submission.
+      swqosTasks = swqosTasks.filter(({ cfg, gas }) => {
+        if (cfg.minTipSol === undefined) return true;
+        const tip = withTip
+          ? (tradeType === TradeType.Buy ? gas?.buyTipLamports : gas?.sellTipLamports) ?? 0
+          : 0;
+        return tip >= Math.round(cfg.minTipSol * 1_000_000_000);
+      });
       if (swqosTasks.length === 0) {
         return {
           success: false,
@@ -2776,6 +2799,7 @@ export class TradingClient {
       if (swqosMod) {
         const timings: SwqosTiming[] = [];
         const signatures: string[] = [];
+        const submitWaits = new AbortController();
         const submitTask = async (task: SwqosGasTask): Promise<SwqosSubmitResult> => {
           const t0 = performance.now();
           try {
@@ -2796,23 +2820,11 @@ export class TradingClient {
             );
             const raw = Buffer.from(tx.serialize());
             const client = swqosClientForConfig!(task.cfg);
-            const pending = client.sendTransaction(tradeType, raw, false);
-            const sig = await (!waitConfirmed
-              ? Promise.race([
-                  pending,
-                  new Promise<never>((_, reject) =>
-                    setTimeout(
-                      () =>
-                        reject(
-                          new Error(
-                            `SWQOS submit timed out after ${SWQOS_SUBMIT_TIMEOUT_MS_WHEN_NO_CONFIRM}ms`
-                          )
-                        ),
-                      SWQOS_SUBMIT_TIMEOUT_MS_WHEN_NO_CONFIRM
-                    )
-                  ),
-                ])
-              : pending);
+            const sig = await withDeadline(
+              () => client.sendTransaction(tradeType, raw, false),
+              waitConfirmed ? undefined : SWQOS_SUBMIT_TIMEOUT_MS_WHEN_NO_CONFIRM,
+              submitWaits.signal,
+            );
             const duration = Math.round((performance.now() - t0) * 1000);
             return { ok: true, sig, task, duration };
           } catch (e) {
@@ -2823,9 +2835,16 @@ export class TradingClient {
 
         const submitPromises = swqosTasks.map((task) => submitTask(task));
         const waitForAllSubmits = execCtx?.waitForAllSubmits ?? false;
-        const results = waitConfirmed || waitForAllSubmits
-          ? await Promise.all(submitPromises)
-          : await collectUntilFirstSuccess(submitPromises, (result) => result.ok);
+        let results: SwqosSubmitResult[];
+        try {
+          results = waitConfirmed || waitForAllSubmits
+            ? await Promise.all(submitPromises)
+            : await collectUntilFirstSuccess(submitPromises, (result) => result.ok);
+        } finally {
+          // Release losing deadline/listener ownership; already submitted transports continue.
+          submitWaits.abort();
+          await Promise.all(submitPromises);
+        }
 
         for (const v of results) {
           timings.push({

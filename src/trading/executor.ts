@@ -1,3 +1,4 @@
+import { performance } from "node:perf_hooks";
 /**
  * Trade Executor for Sol Trade SDK
  * Implements core trading execution with parallel SWQOS submissions.
@@ -144,18 +145,23 @@ export class TradeExecutor {
 
     // Race all submissions - first successful wins
     try {
-      const results = await Promise.allSettled(promises);
-      for (const result of results) {
-        if (result.status === 'fulfilled' && result.value.success) {
-          return result.value;
-        }
+      const pending = new Map(promises.map((promise, index) => [
+        index, promise.then(result => ({ index, result })),
+      ]));
+      const failures: string[] = [];
+      let acknowledged: TradeResult | undefined;
+      while (pending.size) {
+        const { index, result } = await Promise.race(pending.values());
+        pending.delete(index);
+        if (result.success) return result;
+        if (result.signature) acknowledged ??= result;
+        if (result.error) failures.push(result.error);
       }
-      // All failed
-      const lastError = results.find(r => r.status === 'rejected') as PromiseRejectedResult;
+      if (acknowledged) return acknowledged;
       return {
         signature: '',
         success: false,
-        error: lastError?.reason?.toString() || 'All parallel submissions failed',
+        error: failures.length ? `All parallel submissions failed: ${failures.join('; ')}` : 'All parallel submissions failed',
       };
     } catch (error) {
       return {
@@ -171,10 +177,11 @@ export class TradeExecutor {
     transaction: Buffer,
     opts: ExecutorOptions
   ): Promise<TradeResult> {
+    const clients = [...this.clients.values()];
     for (let retry = 0; retry < opts.maxRetries; retry++) {
-      for (const client of this.clients.values()) {
+      for (const client of clients) {
         const result = await this.submitToClient(client, tradeType, transaction, opts);
-        if (result.success) {
+        if (result.success || result.signature) {
           return result;
         }
       }
@@ -198,9 +205,9 @@ export class TradeExecutor {
     opts: ExecutorOptions
   ): Promise<TradeResult> {
     const startTime = Date.now();
-
+    let signature = '';
     try {
-      const signature = await client.sendTransaction(
+      signature = await client.sendTransaction(
         tradeType,
         transaction,
         false
@@ -224,7 +231,7 @@ export class TradeExecutor {
       return result;
     } catch (error) {
       return {
-        signature: '',
+        signature,
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error',
         confirmationTimeMs: Date.now() - startTime,
@@ -318,23 +325,28 @@ export class TradeExecutor {
 // ===== Rate Limiter =====
 
 export class RateLimiter {
-  private lastSubmit: number = 0;
+  private lastSubmit = Number.NEGATIVE_INFINITY;
+  private tail: Promise<void> = Promise.resolve();
 
-  constructor(private minDelayMs: number) {}
-
-  async wait(): Promise<void> {
-    const now = Date.now();
-    const elapsed = now - this.lastSubmit;
-    
-    if (elapsed < this.minDelayMs) {
-      await this.sleep(this.minDelayMs - elapsed);
+  constructor(private minDelayMs: number) {
+    if (!Number.isFinite(minDelayMs) || minDelayMs < 0) {
+      throw new RangeError('minDelayMs must be finite and nonnegative');
     }
-    
-    this.lastSubmit = Date.now();
   }
 
-  private sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+  wait(): Promise<void> {
+    // Reserve a place synchronously. Measuring after the previous release also
+    // preserves spacing when delayed timers wake in the same event-loop turn.
+    const ready = this.tail.then(async () => {
+      let remaining = this.minDelayMs - (performance.now() - this.lastSubmit);
+      while (remaining > 0) {
+        await new Promise<void>(resolve => setTimeout(resolve, Math.ceil(remaining)));
+        remaining = this.minDelayMs - (performance.now() - this.lastSubmit);
+      }
+      this.lastSubmit = performance.now();
+    });
+    this.tail = ready.catch(() => {});
+    return ready;
   }
 }
 

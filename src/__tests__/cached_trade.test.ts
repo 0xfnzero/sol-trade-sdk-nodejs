@@ -135,6 +135,43 @@ it("signed V1 raw transport returns submitted, not confirmed; wrong signatures a
     executor.execute(r, [signer], async () => "1".repeat(64)),
   ).rejects.toThrow("signature does not match");
 });
+
+it('cached V1 signer/transport errors recover without RPC and transport owns a wire copy', async () => {
+  const signer = Keypair.generate(), other = Keypair.generate();
+  const r = request('buy', 'dlmm', signer);
+  const executor = TradeExecutorFactory.createCachedExecutor(DexType.StonkFun);
+  const prepared = executor.prepare(r);
+  const seen: Buffer[] = [];
+  let mode: 'failure' | 'wrong-ack' | 'mutate' | 'success' = 'failure';
+  const noRpc = vi.spyOn(globalThis, 'fetch').mockImplementation(() => { throw Error('implicit RPC'); });
+  const submit = vi.fn(async (wire: Uint8Array) => {
+    seen.push(Buffer.from(wire));
+    const message = wire.slice(0, prepared.compiled.message.length);
+    const signature = wire.slice(prepared.compiled.message.length, prepared.compiled.message.length + 64);
+    expect(nacl.sign.detached.verify(message, signature, signer.publicKey.toBytes())).toBe(true);
+    const expected = bs58.encode(signature);
+    if (mode === 'failure') throw Error('local transport failure');
+    if (mode === 'wrong-ack') return bs58.encode(new Uint8Array(64));
+    if (mode === 'mutate') wire.fill(0);
+    return expected;
+  });
+  try {
+    await expect(executor.execute(r, [{ publicKey: signer.publicKey, secretKey: other.secretKey }], submit))
+      .rejects.toThrow('V1 signer key mismatch');
+    expect(submit).not.toHaveBeenCalled();
+    await expect(executor.execute(r, [signer], submit)).rejects.toThrow('local transport failure');
+    mode = 'wrong-ack';
+    await expect(executor.execute(r, [signer], submit)).rejects.toThrow('signature does not match');
+    mode = 'mutate';
+    expect((await executor.execute(r, [signer], submit)).submitted).toBe(true);
+    mode = 'success';
+    expect((await executor.execute(r, [signer], submit)).confirmed).toBe(false);
+    expect(seen).toHaveLength(4);
+    expect(seen.every(wire => wire.equals(seen[0]!))).toBe(true);
+    expect(executor.prepare(r).compiled.message).toEqual(prepared.compiled.message);
+    expect(noRpc).not.toHaveBeenCalled();
+  } finally { noRpc.mockRestore(); }
+});
 for (const kind of [
   "protocol",
   "direction",

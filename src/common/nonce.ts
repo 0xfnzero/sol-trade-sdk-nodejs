@@ -17,17 +17,19 @@ export interface FetchedDurableNonce {
 
 /**
  * Fetch durable nonce authority + current blockhash from a nonce account (RPC).
- * Layout matches Rust: version (4) + authority_type (4) + authority (32) + blockhash (32) starting at offset 40.
+ * Accepts only System-owned, non-executable Current/Initialized nonce accounts.
+ * Legacy nonces cannot validate durable transactions; the full layout is 80 bytes.
  */
 export async function fetchDurableNonceInfo(
   connection: Pick<Connection, 'getAccountInfo'>,
   nonceAccount: PublicKey
 ): Promise<FetchedDurableNonce | null> {
   const account = await connection.getAccountInfo(nonceAccount);
-  if (!account?.data || account.data.length < 72) {
+  if (!account?.data || !account.owner.equals(PublicKey.default) || account.executable || account.data.length !== 80) {
     return null;
   }
   const data = Buffer.from(account.data);
+  if (data.readUInt32LE(0) !== 1 || data.readUInt32LE(4) !== 1) return null;
   const authority = new PublicKey(data.subarray(8, 40));
   const hashBytes = data.subarray(40, 72);
   const nonceHash = bs58.encode(hashBytes);

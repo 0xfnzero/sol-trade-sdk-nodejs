@@ -288,6 +288,25 @@ it("normalizes decoded native aliases without mutating route state", () => {
         ]).keys,
       ),
     ).toEqual(c.v3);
+    const mixed = params(a, alias, token2022);
+    expect(derivePumpV3Accounts(mixed)).toEqual(derivePumpV3Accounts(p));
+    expect(
+      derivePumpSwapV2Accounts({
+        ...mixed,
+        pool: user,
+        baseVault: a,
+        quoteVault: b,
+      }),
+    ).toEqual(
+      derivePumpSwapV2Accounts({
+        ...p,
+        pool: user,
+        baseVault: a,
+        quoteVault: b,
+      }),
+    );
+    expect(mixed.quoteTokenProgram).toEqual(token2022);
+    expect(mixed.quoteMint).toEqual(alias);
     const parent = hop(a, alias, token),
       child = hop(b, a, token2022);
     for (const [name, hops, input, output] of [

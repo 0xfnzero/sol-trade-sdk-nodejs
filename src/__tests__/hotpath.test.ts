@@ -72,6 +72,7 @@ describe('HotPathState', () => {
 
   afterEach(() => {
     state.stop();
+    vi.useRealTimers();
   });
 
   it('should return null when no blockhash is cached', () => {
@@ -100,6 +101,81 @@ describe('HotPathState', () => {
     expect(result?.blockhash).toBe('test_blockhash');
 
     stateWithPrefetch.stop();
+  });
+
+  it('shares concurrent startup, stops every timer, and restarts cleanly', async () => {
+    vi.useFakeTimers();
+    let resolve!: (value: {blockhash: string; lastValidBlockHeight: number}) => void;
+    mockConnection.getLatestBlockhash.mockReturnValueOnce(new Promise(r => { resolve = r; }));
+    state = new HotPathState(connection);
+    const starts = [state.start(), state.start()];
+    expect(mockConnection.getLatestBlockhash).toHaveBeenCalledTimes(1);
+    resolve({blockhash: 'first', lastValidBlockHeight: 100});
+    await Promise.all(starts);
+    await state.start();
+    expect(mockConnection.getLatestBlockhash).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(1);
+    state.stop();
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(mockConnection.getLatestBlockhash).toHaveBeenCalledTimes(1);
+    mockConnection.getLatestBlockhash.mockResolvedValueOnce({blockhash: 'restart', lastValidBlockHeight: 200});
+    await state.start();
+    expect(state.getBlockhash()?.blockhash).toBe('restart');
+    expect(vi.getTimerCount()).toBe(1);
+  });
+
+  it('keeps refresh single-flight and ignores responses from a stopped generation', async () => {
+    vi.useFakeTimers();
+    mockConnection.getLatestBlockhash.mockResolvedValueOnce({blockhash: 'first', lastValidBlockHeight: 100});
+    state = new HotPathState(connection);
+    await state.start();
+    let resolve!: (value: {blockhash: string; lastValidBlockHeight: number}) => void;
+    mockConnection.getLatestBlockhash.mockReturnValueOnce(new Promise(r => { resolve = r; }));
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(mockConnection.getLatestBlockhash).toHaveBeenCalledTimes(2);
+    state.stop();
+    mockConnection.getLatestBlockhash.mockResolvedValueOnce({blockhash: 'newer', lastValidBlockHeight: 300});
+    await state.start();
+    resolve({blockhash: 'older', lastValidBlockHeight: 200});
+    await vi.advanceTimersByTimeAsync(0);
+    expect(state.getBlockhash()?.blockhash).toBe('newer');
+    expect(vi.getTimerCount()).toBe(1);
+  });
+
+  it('does not create a timer after stop during startup and retries failed startup', async () => {
+    vi.useFakeTimers();
+    let resolve!: (value: {blockhash: string; lastValidBlockHeight: number}) => void;
+    mockConnection.getLatestBlockhash.mockReturnValueOnce(new Promise(r => { resolve = r; }));
+    state = new HotPathState(connection);
+    const starting = state.start();
+    state.stop();
+    resolve({blockhash: 'obsolete', lastValidBlockHeight: 100});
+    await starting;
+    expect(state.getBlockhash()).toBeNull();
+    expect(state.isActive()).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
+    mockConnection.getLatestBlockhash.mockRejectedValueOnce(new Error('RPC unavailable'));
+    await expect(state.start()).rejects.toThrow('RPC unavailable');
+    expect(vi.getTimerCount()).toBe(0);
+    mockConnection.getLatestBlockhash.mockResolvedValueOnce({blockhash: 'ready', lastValidBlockHeight: 300});
+    await state.start();
+    expect(state.isActive()).toBe(true);
+  });
+
+  it('bounds startup waits, clears timeout timers, and can retry after timeout', async () => {
+    vi.useFakeTimers();
+    mockConnection.getLatestBlockhash.mockReturnValueOnce(new Promise(() => {}));
+    state = new HotPathState(connection, {prefetchTimeoutMs: 100});
+    const rejected = expect(state.start()).rejects.toThrow('Timeout');
+    await vi.advanceTimersByTimeAsync(100);
+    await rejected;
+    expect(state.isActive()).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
+    mockConnection.getLatestBlockhash.mockResolvedValueOnce({blockhash: 'retry', lastValidBlockHeight: 100});
+    await state.start();
+    expect(state.getBlockhash()?.blockhash).toBe('retry');
+    expect(vi.getTimerCount()).toBe(1);
   });
 
   it('should detect stale data', () => {

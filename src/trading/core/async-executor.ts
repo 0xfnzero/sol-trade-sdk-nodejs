@@ -1,3 +1,5 @@
+import { performance } from "node:perf_hooks";
+import { withDeadline, DeadlineExceededError, ExecutionAbortedError } from "../../common/deadline";
 /**
  * Async Trade Executor for Sol Trade SDK
  * Implements asynchronous trade execution with configurable submission modes.
@@ -127,8 +129,12 @@ interface ExecutionState {
   startTime: number;
   attempts: number;
   providersTried: Set<SwqosType>;
-  currentStatus: ExecutionStatus;
+  currentStatus?: ExecutionStatus;
   abortController: AbortController;
+  completed: boolean;
+  signature?: string;
+  acknowledgedReceipt?: ExecutionResult;
+  config: ExecutionConfig;
 }
 
 // ===== Default Configurations =====
@@ -238,8 +244,10 @@ export class AsyncTradeExecutor {
       startTime: Date.now(),
       attempts: 0,
       providersTried: new Set(),
-      currentStatus: ExecutionStatus.Pending,
+      currentStatus: undefined,
       abortController: new AbortController(),
+      completed: false,
+      config: fullConfig,
     };
 
     this.activeExecutions.set(executionId, state);
@@ -256,6 +264,7 @@ export class AsyncTradeExecutor {
 
       return result;
     } finally {
+      state.completed = true;
       this.activeExecutions.delete(executionId);
     }
   }
@@ -267,7 +276,7 @@ export class AsyncTradeExecutor {
     const state = this.activeExecutions.get(executionId);
     if (state) {
       state.abortController.abort();
-      this.updateStatus(state, ExecutionStatus.Cancelled);
+      this.updateStatus(state, ExecutionStatus.Cancelled, state.config);
       return true;
     }
     return false;
@@ -280,7 +289,7 @@ export class AsyncTradeExecutor {
     let count = 0;
     for (const [id, state] of this.activeExecutions) {
       state.abortController.abort();
-      this.updateStatus(state, ExecutionStatus.Cancelled);
+      this.updateStatus(state, ExecutionStatus.Cancelled, state.config);
       count++;
     }
     return count;
@@ -299,22 +308,23 @@ export class AsyncTradeExecutor {
     config: ExecutionConfig,
     state: ExecutionState
   ): Promise<ExecutionResult> {
-    return new Promise((resolve, reject) => {
-      const timeoutId = setTimeout(() => {
+    try {
+      return await withDeadline(
+        () => this.executeInternal(tradeType, transaction, config, state),
+        config.timeoutMs, state.abortController.signal,
+      );
+    } catch (error) {
+      if (error instanceof DeadlineExceededError) {
         this.updateStatus(state, ExecutionStatus.TimedOut, config);
-        resolve(this.createTimeoutResult(state));
-      }, config.timeoutMs);
-
-      this.executeInternal(tradeType, transaction, config, state)
-        .then(result => {
-          clearTimeout(timeoutId);
-          resolve(result);
-        })
-        .catch(error => {
-          clearTimeout(timeoutId);
-          reject(error);
-        });
-    });
+        state.abortController.abort();
+        return this.createTimeoutResult(state);
+      }
+      if (error instanceof ExecutionAbortedError) {
+        this.updateStatus(state, ExecutionStatus.Cancelled, config);
+        return this.createCancelledResult(state);
+      }
+      throw error;
+    }
   }
 
   private async executeInternal(
@@ -365,26 +375,34 @@ export class AsyncTradeExecutor {
       return this.createErrorResult(state, 'No providers available');
     }
 
-    const promises = providers.map(provider =>
-      this.executeWithProvider(tradeType, transaction, config, state, provider)
-        .catch(error => ({ success: false, error, provider: provider.getSwqosType() } as ExecutionResult))
+    state.attempts = 1;
+    const lanes = providers.map(() => new AbortController());
+    const cancelLanes = () => lanes.forEach(lane => lane.abort());
+    state.abortController.signal.addEventListener('abort', cancelLanes, { once: true });
+    const tasks = providers.map((provider, index) =>
+      this.executeWithProvider(tradeType, transaction, config, state, provider, lanes[index]!.signal)
+        .then(result => ({ index, result }))
     );
-
-    const results = await Promise.allSettled(promises);
-
-    for (const result of results) {
-      if (result.status === 'fulfilled' && result.value.success) {
-        return result.value;
+    const pending = new Map(tasks.map((task, index) => [index, task]));
+    let firstFailure: ExecutionResult | undefined;
+    try {
+      while (pending.size) {
+        const { index, result } = await Promise.race(pending.values());
+        pending.delete(index);
+        if (result.success) {
+          if (config.abortOnSuccess) {
+            // SWQoS transports have no AbortSignal API. Stop losing waits/polls,
+            // not the winning send or already submitted transactions.
+            lanes.forEach((lane, other) => { if (other !== index) lane.abort(); });
+          }
+          return result;
+        }
+        if (!firstFailure || (!firstFailure.signature && result.signature)) firstFailure = result;
       }
+      return firstFailure ?? this.createErrorResult(state, 'All parallel submissions failed');
+    } finally {
+      state.abortController.signal.removeEventListener('abort', cancelLanes);
     }
-
-    // All failed, return first error
-    const firstError = results.find(r => r.status === 'fulfilled');
-    if (firstError && firstError.status === 'fulfilled') {
-      return firstError.value;
-    }
-
-    return this.createErrorResult(state, 'All parallel submissions failed');
   }
 
   private async executeFallback(
@@ -396,6 +414,7 @@ export class AsyncTradeExecutor {
     const providers = this.getOrderedProviders(config.priorityProviders);
 
     for (const provider of providers) {
+      if (state.abortController.signal.aborted) return this.createCancelledResult(state);
       const result = await this.executeWithProvider(
         tradeType,
         transaction,
@@ -404,12 +423,12 @@ export class AsyncTradeExecutor {
         provider
       );
 
-      if (result.success) {
+      if (result.success || result.signature) {
         return result;
       }
 
       if (config.retryDelayMs > 0) {
-        await this.sleep(config.retryDelayMs);
+        await this.sleep(config.retryDelayMs, state.abortController.signal);
       }
     }
 
@@ -463,6 +482,7 @@ export class AsyncTradeExecutor {
     provider: SwqosClient
   ): Promise<ExecutionResult> {
     for (let attempt = 0; attempt < config.maxRetries; attempt++) {
+      if (state.abortController.signal.aborted) return this.createCancelledResult(state);
       state.attempts = attempt + 1;
 
       this.reportProgress(state, config, provider.getSwqosType());
@@ -475,12 +495,12 @@ export class AsyncTradeExecutor {
         provider
       );
 
-      if (result.success) {
+      if (result.success || result.signature) {
         return result;
       }
 
       if (attempt < config.maxRetries - 1 && config.retryDelayMs > 0) {
-        await this.sleep(config.retryDelayMs * Math.pow(2, attempt)); // Exponential backoff
+        await this.sleep(config.retryDelayMs * Math.pow(2, attempt), state.abortController.signal); // Exponential backoff
       }
     }
 
@@ -495,84 +515,74 @@ export class AsyncTradeExecutor {
     transaction: Buffer,
     config: ExecutionConfig,
     state: ExecutionState,
-    provider: SwqosClient
+    provider: SwqosClient,
+    signal: AbortSignal = state.abortController.signal,
   ): Promise<ExecutionResult> {
     const providerType = provider.getSwqosType();
     state.providersTried.add(providerType);
-
+    let signature = '';
     try {
-      this.updateStatus(state, ExecutionStatus.Submitted, config);
-
-      const signature = await provider.sendTransaction(
-        tradeType,
-        transaction,
-        false
+      signature = await withDeadline(
+        () => provider.sendTransaction(tradeType, transaction, false), config.timeoutMs, signal,
       );
-
+      state.signature ??= signature;
+      state.acknowledgedReceipt ??= {
+        signature, success: false, status: ExecutionStatus.Submitted, provider: providerType,
+        attempts: state.attempts, executionTimeMs: Date.now() - state.startTime,
+      };
+      this.updateStatus(state, ExecutionStatus.Submitted, config);
+      let status = ExecutionStatus.Submitted;
       let confirmationTimeMs: number | undefined;
-
+      let slot: number | undefined;
       if (config.waitConfirmation) {
-        this.updateStatus(state, ExecutionStatus.Confirmed, config);
-        const confirmed = await this.waitForConfirmation(
-          signature,
-          config.commitment
-        );
-        confirmationTimeMs = Date.now() - state.startTime;
-
-        if (!confirmed) {
-          return this.createErrorResult(state, 'Transaction failed to confirm', providerType);
+        const observed = await this.waitForConfirmation(signature, config.commitment, signal);
+        if (!observed) {
+          const failure = { ...this.createErrorResult(state, 'Transaction failed to confirm', providerType), signature };
+          if (state.acknowledgedReceipt?.signature === signature) state.acknowledgedReceipt = failure;
+          return failure;
         }
-
-        this.updateStatus(state, ExecutionStatus.Finalized, config);
+        status = observed.status;
+        slot = observed.slot;
+        confirmationTimeMs = Date.now() - state.startTime;
+        this.updateStatus(state, ExecutionStatus.Confirmed, config);
+        if (status === ExecutionStatus.Finalized) this.updateStatus(state, status, config);
       }
-
       return {
-        signature,
-        success: true,
-        status: config.waitConfirmation ? ExecutionStatus.Finalized : ExecutionStatus.Submitted,
-        provider: providerType,
-        attempts: state.attempts,
-        executionTimeMs: Date.now() - state.startTime,
-        confirmationTimeMs,
+        signature, success: true, status, provider: providerType, attempts: state.attempts,
+        executionTimeMs: Date.now() - state.startTime, confirmationTimeMs, slot,
       };
     } catch (error) {
-      return this.createErrorResult(
-        state,
-        error instanceof Error ? error.message : 'Unknown error',
-        providerType
-      );
+      const failure = error instanceof ExecutionAbortedError
+        ? { ...this.createCancelledResult(state), signature, provider: providerType }
+        : { ...this.createErrorResult(state, error instanceof Error ? error.message : 'Unknown error', providerType), signature };
+      if (signature && state.acknowledgedReceipt?.signature === signature) state.acknowledgedReceipt = failure;
+      return failure;
     }
   }
 
   private async waitForConfirmation(
-    signature: string,
-    commitment: Commitment
-  ): Promise<boolean> {
-    const timeoutMs = 30000;
-    const startTime = Date.now();
-
-    while (Date.now() - startTime < timeoutMs) {
+    signature: string, commitment: Commitment, signal: AbortSignal,
+  ): Promise<{ status: ExecutionStatus.Confirmed | ExecutionStatus.Finalized; slot: number } | null> {
+    const expires = performance.now() + 30_000;
+    while (performance.now() < expires) {
       try {
-        const status = await this.connection.getSignatureStatus(signature);
-        if (status.value) {
-          if (status.value.err) {
-            return false;
-          }
-          const cs = status.value.confirmationStatus;
-          if (commitment === 'finalized') {
-            if (cs === 'finalized') return true;
-          } else {
-            // Rust `poll_any_transaction_confirmation`: Confirmed | Finalized only
-            if (cs === 'confirmed' || cs === 'finalized') return true;
-          }
+        const status = await withDeadline(
+          () => this.connection.getSignatureStatus(signature), expires - performance.now(), signal,
+        );
+        if (status.value?.err) return null;
+        const cs = status.value?.confirmationStatus;
+        if (cs === 'finalized' || (commitment !== 'finalized' && cs === 'confirmed')) {
+          return { status: cs === 'finalized' ? ExecutionStatus.Finalized : ExecutionStatus.Confirmed,
+            slot: status.value!.slot };
         }
-      } catch {
-        // Continue polling
+      } catch (error) {
+        if (error instanceof ExecutionAbortedError) throw error;
+        if (error instanceof DeadlineExceededError) return null;
+        // Transient RPC errors may be retried within the confirmation deadline.
       }
-      await this.sleep(500);
+      await this.sleep(Math.max(0, Math.min(500, expires - performance.now())), signal);
     }
-
-    return false;
+    return null;
   }
 
   private getOrderedProviders(priorityProviders: SwqosType[]): SwqosClient[] {
@@ -602,6 +612,11 @@ export class AsyncTradeExecutor {
     config?: ExecutionConfig,
     result?: ExecutionResult
   ): void {
+    if (state.completed || state.currentStatus === status) return;
+    if ([ExecutionStatus.Cancelled, ExecutionStatus.TimedOut].includes(state.currentStatus!)) return;
+    if ((state.currentStatus === ExecutionStatus.Confirmed || state.currentStatus === ExecutionStatus.Finalized)
+      && status === ExecutionStatus.Submitted) return;
+    if (state.currentStatus === ExecutionStatus.Finalized && status === ExecutionStatus.Confirmed) return;
     state.currentStatus = status;
     if (config?.onStatusUpdate) {
       config.onStatusUpdate(status, result);
@@ -645,11 +660,12 @@ export class AsyncTradeExecutor {
     provider?: SwqosType
   ): ExecutionResult {
     return {
-      signature: '',
+      ...(provider === undefined ? state.acknowledgedReceipt : undefined),
+      signature: provider === undefined ? state.acknowledgedReceipt?.signature ?? state.signature ?? '' : '',
       success: false,
       status: ExecutionStatus.Failed,
       error,
-      provider,
+      provider: provider ?? state.acknowledgedReceipt?.provider,
       attempts: state.attempts,
       executionTimeMs: Date.now() - state.startTime,
     };
@@ -657,7 +673,8 @@ export class AsyncTradeExecutor {
 
   private createTimeoutResult(state: ExecutionState): ExecutionResult {
     return {
-      signature: '',
+      ...state.acknowledgedReceipt,
+      signature: state.signature ?? '',
       success: false,
       status: ExecutionStatus.TimedOut,
       error: 'Execution timed out',
@@ -666,12 +683,23 @@ export class AsyncTradeExecutor {
     };
   }
 
+  private createCancelledResult(state: ExecutionState): ExecutionResult {
+    return { ...state.acknowledgedReceipt, signature: state.signature ?? '', success: false, status: ExecutionStatus.Cancelled,
+      error: 'Execution cancelled', attempts: state.attempts, executionTimeMs: Date.now() - state.startTime };
+  }
+
   private generateExecutionId(): string {
     return `exec_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
 
-  private sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+  private sleep(ms: number, signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted) return Promise.reject(new ExecutionAbortedError());
+    return new Promise((resolve, reject) => {
+      const finish = () => { signal?.removeEventListener('abort', abort); resolve(); };
+      const timer = setTimeout(finish, ms);
+      const abort = () => { clearTimeout(timer); reject(new ExecutionAbortedError()); };
+      signal?.addEventListener('abort', abort, { once: true });
+    });
   }
 }
 

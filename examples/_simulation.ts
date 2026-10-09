@@ -8,13 +8,14 @@ export function validateSimulationResponse(response: unknown): unknown {
  if(!value||typeof value!=='object'||!Object.hasOwn(value,'err'))throw Error('Simulation response missing execution result');
  return value.err;
 }
-export async function simulate(wire:Buffer,slot:bigint,output?:string):Promise<void>{
+export async function simulate(wire:Buffer,slot:bigint,output?:string,verifySignatures=false):Promise<void>{
+ // Signature verification must preserve the signed blockhash.
  // JSON-RPC minContextSlot is a JSON number; reject lossy conversion.
  if(slot<0n||slot>BigInt(Number.MAX_SAFE_INTEGER))throw Error('Simulation slot cannot be represented exactly');
  const response=await fetch(process.env.RPC_URL??'https://api.mainnet-beta.solana.com',{
   method:'POST',headers:{'content-type':'application/json'},signal:AbortSignal.timeout(30000),
   body:JSON.stringify({jsonrpc:'2.0',id:1,method:'simulateTransaction',params:[wire.toString('base64'),{
-   encoding:'base64',sigVerify:false,replaceRecentBlockhash:true,innerInstructions:true,commitment:'confirmed',minContextSlot:Number(slot)}]})});
+   encoding:'base64',sigVerify:verifySignatures,replaceRecentBlockhash:!verifySignatures,innerInstructions:true,commitment:'confirmed',minContextSlot:Number(slot)}]})});
  if(!response.ok)throw Error(`Simulation HTTP ${response.status}`);
  const result:unknown=await response.json(),error=validateSimulationResponse(result);
  if(output)writeFileSync(output,JSON.stringify({wire:wire.toString('base64'),response:result},null,2)+'\n');

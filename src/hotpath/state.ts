@@ -7,6 +7,8 @@
  * Key principle: Prepare everything before the trade, execute with minimal latency.
  */
 
+import { performance } from 'node:perf_hooks';
+import { withDeadline } from '../common/deadline';
 import { Connection, PublicKey } from '@solana/web3.js';
 
 // ===== Types =====
@@ -61,10 +63,6 @@ export interface PoolState {
 
 // ===== Helper Functions =====
 
-function isDataFresh(fetchedAt: number, ttlMs: number): boolean {
-  return Date.now() - fetchedAt <= ttlMs;
-}
-
 // ===== Hot Path State =====
 
 export class HotPathState {
@@ -73,12 +71,17 @@ export class HotPathState {
 
   // Prefetched data
   private currentData: PrefetchedData | null = null;
+  private blockhashFetchedMonotonicMs?: number;
   private accounts: Map<string, AccountState> = new Map();
   private pools: Map<string, PoolState> = new Map();
+  private cachedStateClock = new WeakMap<{ fetchedAt: number }, number>();
 
   // Background prefetch control
   private prefetchTimer?: ReturnType<typeof setInterval>;
   private isRunning: boolean = false;
+  private generation = 0;
+  private starting?: Promise<void>;
+  private prefetching?: Promise<void>;
 
   // Callbacks
   private onBlockhashUpdateCallback?: (
@@ -103,27 +106,31 @@ export class HotPathState {
    * Call this BEFORE any hot path execution
    */
   async start(): Promise<void> {
-    if (!this.config.enablePrefetch) {
-      return;
-    }
-
-    // Initial synchronous prefetch
-    await this.prefetchBlockhash();
-
-    // Start background loop
-    this.isRunning = true;
-    this.prefetchTimer = setInterval(
-      () => this.prefetchBlockhash().catch(() => {}),
-      this.config.blockhashRefreshIntervalMs
-    );
+    if (!this.config.enablePrefetch || this.isRunning) return;
+    if (this.starting) return this.starting;
+    const generation = ++this.generation;
+    const starting = (async () => {
+      await this.prefetchBlockhash(generation);
+      if (generation !== this.generation) return;
+      this.isRunning = true;
+      this.prefetchTimer = setInterval(
+        () => { void this.prefetchBlockhash(generation).catch(() => {}); },
+        this.config.blockhashRefreshIntervalMs,
+      );
+    })().finally(() => {
+      if (this.starting === starting) this.starting = undefined;
+    });
+    this.starting = starting;
+    return starting;
   }
 
-  /**
-   * Stop background prefetching
-   */
+  /** Stop future refreshes and prevent in-flight responses from updating the cache. */
   stop(): void {
     this.isRunning = false;
-    if (this.prefetchTimer) {
+    this.generation++;
+    this.starting = undefined;
+    this.prefetching = undefined;
+    if (this.prefetchTimer !== undefined) {
       clearInterval(this.prefetchTimer);
       this.prefetchTimer = undefined;
     }
@@ -139,37 +146,40 @@ export class HotPathState {
   /**
    * Prefetch latest blockhash - RPC call happens here (background only)
    */
-  private async prefetchBlockhash(): Promise<void> {
+  private prefetchBlockhash(generation: number): Promise<void> {
+    if (this.prefetching) return this.prefetching;
+    const pending = this.fetchBlockhash(generation).finally(() => {
+      if (this.prefetching === pending) this.prefetching = undefined;
+    });
+    this.prefetching = pending;
+    return pending;
+  }
+
+  private async fetchBlockhash(generation: number): Promise<void> {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
       const result = await Promise.race([
         this.connection.getLatestBlockhash('processed'),
-        new Promise<never>((_, reject) =>
-          setTimeout(
-            () => reject(new Error('Timeout')),
-            this.config.prefetchTimeoutMs
-          )
-        ),
+        new Promise<never>((_, reject) => {
+          timeout = setTimeout(() => reject(new Error('Timeout')), this.config.prefetchTimeoutMs);
+        }),
       ]);
-
+      if (generation !== this.generation) return;
+      this.blockhashFetchedMonotonicMs = performance.now();
       this.currentData = {
         blockhash: result.blockhash,
         lastValidBlockHeight: result.lastValidBlockHeight,
-        slot: 0, // Not directly available
+        slot: 0,
         fetchedAt: Date.now(),
       };
-
       this.metrics.prefetchCount++;
-      this.metrics.lastPrefetchTime = Date.now();
-
-      if (this.onBlockhashUpdateCallback) {
-        this.onBlockhashUpdateCallback(
-          this.currentData.blockhash,
-          this.currentData.lastValidBlockHeight
-        );
-      }
+      this.metrics.lastPrefetchTime = this.currentData.fetchedAt;
+      this.onBlockhashUpdateCallback?.(result.blockhash, result.lastValidBlockHeight);
     } catch (error) {
-      this.metrics.prefetchErrors++;
+      if (generation === this.generation) this.metrics.prefetchErrors++;
       throw error;
+    } finally {
+      if (timeout !== undefined) clearTimeout(timeout);
     }
   }
 
@@ -179,7 +189,7 @@ export class HotPathState {
   getBlockhash(): { blockhash: string; lastValidBlockHeight: number } | null {
     if (
       !this.currentData ||
-      !isDataFresh(this.currentData.fetchedAt, this.config.cacheTtlMs)
+      !this.isBlockhashFresh()
     ) {
       return null;
     }
@@ -189,13 +199,23 @@ export class HotPathState {
     };
   }
 
+  private isBlockhashFresh(): boolean {
+    return this.isFreshSince(this.blockhashFetchedMonotonicMs);
+  }
+
+  private isFreshSince(fetchedMonotonicMs: number | undefined): boolean {
+    if (fetchedMonotonicMs === undefined) return false;
+    const ageMs = performance.now() - fetchedMonotonicMs;
+    return ageMs >= 0 && ageMs <= this.config.cacheTtlMs;
+  }
+
   /**
    * Check if prefetched data is still valid
    */
   isDataFresh(): boolean {
     return (
       this.currentData !== null &&
-      isDataFresh(this.currentData.fetchedAt, this.config.cacheTtlMs)
+      this.isBlockhashFresh()
     );
   }
 
@@ -221,6 +241,8 @@ export class HotPathState {
    * Update account state in cache
    */
   updateAccount(pubkey: string, state: AccountState): void {
+    // Convert legacy wall timestamps only at cache publication; reads use monotonic age.
+    this.cachedStateClock.set(state, performance.now() - (Date.now() - state.fetchedAt));
     this.accounts.set(pubkey, state);
   }
 
@@ -229,7 +251,7 @@ export class HotPathState {
    */
   getAccount(pubkey: string): AccountState | null {
     const state = this.accounts.get(pubkey);
-    if (state && isDataFresh(state.fetchedAt, this.config.cacheTtlMs)) {
+    if (state && this.isFreshSince(this.cachedStateClock.get(state))) {
       return state;
     }
     return null;
@@ -258,15 +280,10 @@ export class HotPathState {
 
     try {
       const keys = pubkeys.map((p) => new PublicKey(p));
-      const result = await Promise.race([
-        this.connection.getMultipleAccountsInfo(keys, 'processed'),
-        new Promise<never>((_, reject) =>
-          setTimeout(
-            () => reject(new Error('Timeout')),
-            this.config.prefetchTimeoutMs
-          )
-        ),
-      ]);
+      const result = await withDeadline(
+        () => this.connection.getMultipleAccountsInfo(keys, 'processed'),
+        this.config.prefetchTimeoutMs,
+      );
 
       for (let i = 0; i < pubkeys.length; i++) {
         const pubkey = pubkeys[i];
@@ -296,6 +313,7 @@ export class HotPathState {
    * Update pool state in cache
    */
   updatePool(poolAddress: string, state: PoolState): void {
+    this.cachedStateClock.set(state, performance.now() - (Date.now() - state.fetchedAt));
     this.pools.set(poolAddress, state);
   }
 
@@ -304,7 +322,7 @@ export class HotPathState {
    */
   getPool(poolAddress: string): PoolState | null {
     const state = this.pools.get(poolAddress);
-    if (state && isDataFresh(state.fetchedAt, this.config.cacheTtlMs)) {
+    if (state && this.isFreshSince(this.cachedStateClock.get(state))) {
       return state;
     }
     return null;

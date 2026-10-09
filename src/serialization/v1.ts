@@ -5,7 +5,13 @@ import {
   type Signer,
 } from "@solana/web3.js";
 import bs58 from "bs58";
-import nacl from "tweetnacl";
+import { createPrivateKey, createPublicKey, sign, verify } from "node:crypto";
+// RFC 8410 DER wrappers for a raw Ed25519 seed/public key. No signer keys are cached.
+const ED25519_PKCS8_PREFIX = Buffer.from(
+  "302e020100300506032b657004220420",
+  "hex",
+);
+const ED25519_SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex");
 export interface V1Config {
   priorityFee?: bigint;
   computeUnitLimit?: number;
@@ -160,12 +166,36 @@ export function signV1Transaction(
     .map((key) => {
       const signer = provided.get(key.toBase58());
       if (!signer) throw new Error("Missing V1 signer: " + key.toBase58());
-      const signature = nacl.sign.detached(compiled.message, signer.secretKey);
+      const publicBytes = key.toBuffer();
+      const secretKey = signer.secretKey;
       if (
-        !nacl.sign.detached.verify(compiled.message, signature, key.toBytes())
+        secretKey.length !== 64 ||
+        !Buffer.from(secretKey.subarray(32)).equals(publicBytes)
       )
         throw new Error("V1 signer key mismatch");
-      return Buffer.from(signature);
+      const privateDer = Buffer.concat([
+        ED25519_PKCS8_PREFIX,
+        secretKey.subarray(0, 32),
+      ]);
+      let privateKey;
+      try {
+        privateKey = createPrivateKey({
+          key: privateDer,
+          format: "der",
+          type: "pkcs8",
+        });
+      } finally {
+        privateDer.fill(0);
+      }
+      const publicKey = createPublicKey({
+        key: Buffer.concat([ED25519_SPKI_PREFIX, publicBytes]),
+        format: "der",
+        type: "spki",
+      });
+      const signature = sign(null, m, privateKey);
+      if (!verify(null, m, publicKey, signature))
+        throw new Error("V1 signer key mismatch");
+      return signature;
     });
-  return Buffer.concat([Buffer.from(compiled.message), ...signatures]);
+  return Buffer.concat([m, ...signatures]);
 }

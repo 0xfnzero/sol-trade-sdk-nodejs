@@ -13,7 +13,7 @@ export interface UltraLowLatencyConfig {
   memoryPoolSize: number;
   /** Lock-free queue capacity */
   queueCapacity: number;
-  /** Enable busy spinning instead of yielding */
+  /** Compatibility setting; in-process queues never busy-spin the event loop. */
   enableBusySpin: boolean;
   /** Spin count before yielding */
   spinCount: number;
@@ -30,7 +30,7 @@ export function defaultUltraLowLatencyConfig(): UltraLowLatencyConfig {
   return {
     memoryPoolSize: 1024,
     queueCapacity: 4096,
-    enableBusySpin: true,
+    enableBusySpin: false,
     spinCount: 1000,
     enablePrefetch: true,
     numaAware: false,
@@ -130,8 +130,8 @@ export class MemoryPool<T> {
 // ===== Lock-Free Queue =====
 
 /**
- * Lock-free circular buffer queue for single-producer single-consumer scenarios.
- * Uses atomic operations for synchronization.
+ * In-process circular queue. Calls are serialized by the JS event loop;
+ * this object is not a shared-memory queue between worker threads.
  */
 export class LockFreeQueue<T> {
   private buffer: (T | undefined)[];
@@ -139,20 +139,27 @@ export class LockFreeQueue<T> {
   private mask: number;
   private head: number = 0; // Write position
   private tail: number = 0; // Read position
-  private config: UltraLowLatencyConfig;
+  private waiters = new Set<{ finish: (item: T | undefined) => void }>();
 
-  constructor(capacity: number = 4096, config?: UltraLowLatencyConfig) {
+  constructor(capacity: number = 4096, _config?: UltraLowLatencyConfig) {
+    if (!Number.isSafeInteger(capacity) || capacity < 2 || capacity > 0x40000000) {
+      throw new RangeError('capacity must be an integer between 2 and 2^30');
+    }
     // Round up to power of 2
     this.capacity = Math.pow(2, Math.ceil(Math.log2(capacity)));
     this.mask = this.capacity - 1;
     this.buffer = new Array(this.capacity).fill(undefined);
-    this.config = config || defaultUltraLowLatencyConfig();
   }
 
   /**
    * Enqueue an item (producer only)
    */
   enqueue(item: T): boolean {
+    if (this.waiters.size > 0) {
+      const waiter = this.waiters.values().next().value!;
+      waiter.finish(item);
+      return true;
+    }
     const nextHead = (this.head + 1) & this.mask;
 
     // Check if full
@@ -182,30 +189,42 @@ export class LockFreeQueue<T> {
   }
 
   /**
-   * Try dequeue with spinning
+   * Compatibility alias for a nonblocking dequeue. JS producers cannot progress
+   * while this thread spins. Use dequeueWait when waiting for future arrivals.
+   * @deprecated Use dequeue() or dequeueWait(timeoutUs).
    */
-  dequeueSpin(timeoutUs: number = 1000): T | undefined {
-    const startTime = performance.now();
-    const timeoutMs = timeoutUs / 1000;
+  dequeueSpin(_timeoutUs: number = 1000): T | undefined {
+    return this.dequeue();
+  }
 
-    let spins = 0;
-    while (performance.now() - startTime < timeoutMs) {
-      const item = this.dequeue();
-      if (item !== undefined) {
-        return item;
-      }
-
-      if (this.config.enableBusySpin && spins < this.config.spinCount) {
-        spins++;
-        // Busy spin
-        continue;
-      }
-
-      // Yield
-      spins = 0;
+  /** Wait without blocking the producer. Resolves undefined on timeout/abort/clear.
+   * Timers use the runtime's millisecond resolution, not a microsecond deadline.
+   * Pending consumers are bounded by queue capacity and served in FIFO order.
+   */
+  dequeueWait(timeoutUs: number = 1000, signal?: AbortSignal): Promise<T | undefined> {
+    if (!Number.isFinite(timeoutUs) || timeoutUs < 0) {
+      return Promise.reject(new RangeError('timeoutUs must be finite and nonnegative'));
     }
-
-    return undefined;
+    if (signal?.aborted) return Promise.resolve(undefined);
+    const item = this.dequeue();
+    if (item !== undefined || timeoutUs === 0) return Promise.resolve(item);
+    if (this.waiters.size >= this.capacity - 1) {
+      return Promise.reject(new Error('Too many pending queue consumers'));
+    }
+    return new Promise(resolve => {
+      let timer: ReturnType<typeof setTimeout>;
+      const waiter = { finish: (value: T | undefined) => {
+        if (!this.waiters.delete(waiter)) return;
+        clearTimeout(timer);
+        signal?.removeEventListener('abort', abort);
+        resolve(value);
+      } };
+      const abort = () => waiter.finish(undefined);
+      this.waiters.add(waiter);
+      signal?.addEventListener('abort', abort, { once: true });
+      // The timer's maximum delay is a signed 32-bit millisecond value.
+      timer = setTimeout(abort, Math.min(2_147_483_647, Math.max(1, Math.ceil(timeoutUs / 1000))));
+    });
   }
 
   /**
@@ -236,6 +255,7 @@ export class LockFreeQueue<T> {
     this.head = 0;
     this.tail = 0;
     this.buffer.fill(undefined);
+    for (const waiter of this.waiters) waiter.finish(undefined);
   }
 }
 
@@ -347,13 +367,20 @@ export class MPMCQueue<T> {
  * Provides latency measurement, optimization, and reporting.
  */
 export class LatencyOptimizer {
-  private latencies: number[] = [];
+  private latencies: Float64Array;
+  private count = 0;
+  private nextSample = 0;
+  private cachedStats?: LatencyStats;
   private maxSamples: number;
   private config: UltraLowLatencyConfig;
   private optimizationCallbacks: Array<() => void> = [];
 
   constructor(maxSamples: number = 10000, config?: UltraLowLatencyConfig) {
+    if (!Number.isSafeInteger(maxSamples) || maxSamples <= 0) {
+      throw new RangeError('maxSamples must be a positive safe integer');
+    }
     this.maxSamples = maxSamples;
+    this.latencies = new Float64Array(maxSamples);
     this.config = config || defaultUltraLowLatencyConfig();
   }
 
@@ -361,11 +388,10 @@ export class LatencyOptimizer {
    * Record a latency measurement
    */
   recordLatency(latencyUs: number): void {
-    this.latencies.push(latencyUs);
-
-    if (this.latencies.length > this.maxSamples) {
-      this.latencies.shift();
-    }
+    this.latencies[this.nextSample] = latencyUs;
+    this.nextSample = (this.nextSample + 1) % this.maxSamples;
+    if (this.count < this.maxSamples) this.count++;
+    this.cachedStats = undefined;
   }
 
   /**
@@ -380,10 +406,12 @@ export class LatencyOptimizer {
   }
 
   /**
-   * Get latency statistics
+   * Compute exact window statistics on demand, outside the trading callback.
+   * Recording is O(1); unchanged-window reads reuse the previous result.
    */
   getStats(): LatencyStats {
-    if (this.latencies.length === 0) {
+    if (this.cachedStats) return { ...this.cachedStats };
+    if (this.count === 0) {
       return {
         minLatencyUs: 0,
         maxLatencyUs: 0,
@@ -395,18 +423,37 @@ export class LatencyOptimizer {
       };
     }
 
-    const sorted = [...this.latencies].sort((a, b) => a - b);
-    const n = sorted.length;
-
-    return {
-      minLatencyUs: sorted[0] ?? 0,
-      maxLatencyUs: sorted[n - 1] ?? 0,
-      avgLatencyUs: sorted.reduce((a, b) => a + b, 0) / n,
-      p50LatencyUs: sorted[Math.floor(n * 0.5)] ?? 0,
-      p99LatencyUs: sorted[Math.floor(n * 0.99)] ?? 0,
-      p999LatencyUs: sorted[Math.floor(n * 0.999)] ?? 0,
+    const n = this.count;
+    const values = this.latencies.slice(0, n);
+    let min = Infinity, max = -Infinity, sum = 0, finite = true;
+    for (const value of values) {
+      min = Math.min(min, value);
+      max = Math.max(max, value);
+      sum += value;
+      finite &&= Number.isFinite(value);
+    }
+    // Preserve the previous comparator behavior for unusual non-finite inputs.
+    // Ordinary measurements use selection rather than sorting the entire window.
+    let fallback: number[] | undefined;
+    if (!finite) {
+      const ordered = this.count === this.maxSamples
+        ? [...this.latencies.subarray(this.nextSample), ...this.latencies.subarray(0, this.nextSample)]
+        : [...values];
+      fallback = ordered.sort((a, b) => a - b);
+      min = fallback[0]!;
+      max = fallback[n - 1]!;
+    }
+    const quantile = (index: number) => fallback ? fallback[index]! : selectQuantile(values, index);
+    this.cachedStats = {
+      minLatencyUs: min,
+      maxLatencyUs: max,
+      avgLatencyUs: sum / n,
+      p50LatencyUs: quantile(Math.floor(n * 0.5)),
+      p99LatencyUs: quantile(Math.floor(n * 0.99)),
+      p999LatencyUs: quantile(Math.floor(n * 0.999)),
       totalOperations: n,
     };
+    return { ...this.cachedStats };
   }
 
   /**
@@ -433,8 +480,38 @@ export class LatencyOptimizer {
    * Reset statistics
    */
   reset(): void {
-    this.latencies = [];
+    this.count = 0;
+    this.nextSample = 0;
+    this.cachedStats = undefined;
   }
+}
+
+/** Iterative selection with a bounded partition budget and numeric-sort fallback. */
+function selectQuantile(values: Float64Array, index: number): number {
+  let left = 0, right = values.length - 1;
+  let budget = 2 * Math.ceil(Math.log2(values.length + 1));
+  while (left < right) {
+    if (--budget < 0) {
+      values.subarray(left, right + 1).sort();
+      return values[index]!;
+    }
+    const middle = left + ((right - left) >> 1);
+    const a = values[left]!, b = values[middle]!, c = values[right]!;
+    const pivot = Math.max(Math.min(a, b), Math.min(Math.max(a, b), c));
+    let i = left, j = right;
+    while (i <= j) {
+      while (values[i]! < pivot) i++;
+      while (values[j]! > pivot) j--;
+      if (i <= j) {
+        const tmp = values[i]!; values[i] = values[j]!; values[j] = tmp;
+        i++; j--;
+      }
+    }
+    if (index <= j) right = j;
+    else if (index >= i) left = i;
+    else return values[index]!;
+  }
+  return values[index]!;
 }
 
 // ===== Prefetch Utilities =====

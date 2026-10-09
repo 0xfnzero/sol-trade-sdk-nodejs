@@ -1,0 +1,986 @@
+{
+  "oracle": "spl_token_2022_interface::extension::transfer_fee::TransferFee",
+  "samples": [
+    {
+      "amount": "0",
+      "basisPoints": 0,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "0"
+    },
+    {
+      "amount": "1",
+      "basisPoints": 0,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "0"
+    },
+    {
+      "amount": "99",
+      "basisPoints": 0,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "0"
+    },
+    {
+      "amount": "100",
+      "basisPoints": 0,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "0"
+    },
+    {
+      "amount": "101",
+      "basisPoints": 0,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "0"
+    },
+    {
+      "amount": "18446744073709551515",
+      "basisPoints": 0,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "0"
+    },
+    {
+      "amount": "18446744073709551615",
+      "basisPoints": 0,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "0"
+    },
+    {
+      "amount": "0",
+      "basisPoints": 0,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "1"
+    },
+    {
+      "amount": "1",
+      "basisPoints": 0,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "1"
+    },
+    {
+      "amount": "99",
+      "basisPoints": 0,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "1"
+    },
+    {
+      "amount": "100",
+      "basisPoints": 0,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "1"
+    },
+    {
+      "amount": "101",
+      "basisPoints": 0,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "1"
+    },
+    {
+      "amount": "18446744073709551515",
+      "basisPoints": 0,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "1"
+    },
+    {
+      "amount": "18446744073709551615",
+      "basisPoints": 0,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "1"
+    },
+    {
+      "amount": "0",
+      "basisPoints": 0,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "100"
+    },
+    {
+      "amount": "1",
+      "basisPoints": 0,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "100"
+    },
+    {
+      "amount": "99",
+      "basisPoints": 0,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "100"
+    },
+    {
+      "amount": "100",
+      "basisPoints": 0,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "100"
+    },
+    {
+      "amount": "101",
+      "basisPoints": 0,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "100"
+    },
+    {
+      "amount": "18446744073709551515",
+      "basisPoints": 0,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "100"
+    },
+    {
+      "amount": "18446744073709551615",
+      "basisPoints": 0,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "100"
+    },
+    {
+      "amount": "0",
+      "basisPoints": 0,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "18446744073709551615"
+    },
+    {
+      "amount": "1",
+      "basisPoints": 0,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "18446744073709551615"
+    },
+    {
+      "amount": "99",
+      "basisPoints": 0,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "18446744073709551615"
+    },
+    {
+      "amount": "100",
+      "basisPoints": 0,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "18446744073709551615"
+    },
+    {
+      "amount": "101",
+      "basisPoints": 0,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "18446744073709551615"
+    },
+    {
+      "amount": "18446744073709551515",
+      "basisPoints": 0,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "18446744073709551615"
+    },
+    {
+      "amount": "18446744073709551615",
+      "basisPoints": 0,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "18446744073709551615"
+    },
+    {
+      "amount": "0",
+      "basisPoints": 1,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "0"
+    },
+    {
+      "amount": "1",
+      "basisPoints": 1,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "0"
+    },
+    {
+      "amount": "99",
+      "basisPoints": 1,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "0"
+    },
+    {
+      "amount": "100",
+      "basisPoints": 1,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "0"
+    },
+    {
+      "amount": "101",
+      "basisPoints": 1,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "0"
+    },
+    {
+      "amount": "18446744073709551515",
+      "basisPoints": 1,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "0"
+    },
+    {
+      "amount": "18446744073709551615",
+      "basisPoints": 1,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "0"
+    },
+    {
+      "amount": "0",
+      "basisPoints": 1,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "1"
+    },
+    {
+      "amount": "1",
+      "basisPoints": 1,
+      "fee": "1",
+      "inverseFee": "1",
+      "maximumFee": "1"
+    },
+    {
+      "amount": "99",
+      "basisPoints": 1,
+      "fee": "1",
+      "inverseFee": "1",
+      "maximumFee": "1"
+    },
+    {
+      "amount": "100",
+      "basisPoints": 1,
+      "fee": "1",
+      "inverseFee": "1",
+      "maximumFee": "1"
+    },
+    {
+      "amount": "101",
+      "basisPoints": 1,
+      "fee": "1",
+      "inverseFee": "1",
+      "maximumFee": "1"
+    },
+    {
+      "amount": "18446744073709551515",
+      "basisPoints": 1,
+      "fee": "1",
+      "inverseFee": "1",
+      "maximumFee": "1"
+    },
+    {
+      "amount": "18446744073709551615",
+      "basisPoints": 1,
+      "fee": "1",
+      "inverseFee": null,
+      "maximumFee": "1"
+    },
+    {
+      "amount": "0",
+      "basisPoints": 1,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "100"
+    },
+    {
+      "amount": "1",
+      "basisPoints": 1,
+      "fee": "1",
+      "inverseFee": "1",
+      "maximumFee": "100"
+    },
+    {
+      "amount": "99",
+      "basisPoints": 1,
+      "fee": "1",
+      "inverseFee": "1",
+      "maximumFee": "100"
+    },
+    {
+      "amount": "100",
+      "basisPoints": 1,
+      "fee": "1",
+      "inverseFee": "1",
+      "maximumFee": "100"
+    },
+    {
+      "amount": "101",
+      "basisPoints": 1,
+      "fee": "1",
+      "inverseFee": "1",
+      "maximumFee": "100"
+    },
+    {
+      "amount": "18446744073709551515",
+      "basisPoints": 1,
+      "fee": "100",
+      "inverseFee": "100",
+      "maximumFee": "100"
+    },
+    {
+      "amount": "18446744073709551615",
+      "basisPoints": 1,
+      "fee": "100",
+      "inverseFee": null,
+      "maximumFee": "100"
+    },
+    {
+      "amount": "0",
+      "basisPoints": 1,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "18446744073709551615"
+    },
+    {
+      "amount": "1",
+      "basisPoints": 1,
+      "fee": "1",
+      "inverseFee": "1",
+      "maximumFee": "18446744073709551615"
+    },
+    {
+      "amount": "99",
+      "basisPoints": 1,
+      "fee": "1",
+      "inverseFee": "1",
+      "maximumFee": "18446744073709551615"
+    },
+    {
+      "amount": "100",
+      "basisPoints": 1,
+      "fee": "1",
+      "inverseFee": "1",
+      "maximumFee": "18446744073709551615"
+    },
+    {
+      "amount": "101",
+      "basisPoints": 1,
+      "fee": "1",
+      "inverseFee": "1",
+      "maximumFee": "18446744073709551615"
+    },
+    {
+      "amount": "18446744073709551515",
+      "basisPoints": 1,
+      "fee": "1844674407370956",
+      "inverseFee": null,
+      "maximumFee": "18446744073709551615"
+    },
+    {
+      "amount": "18446744073709551615",
+      "basisPoints": 1,
+      "fee": "1844674407370956",
+      "inverseFee": null,
+      "maximumFee": "18446744073709551615"
+    },
+    {
+      "amount": "0",
+      "basisPoints": 300,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "0"
+    },
+    {
+      "amount": "1",
+      "basisPoints": 300,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "0"
+    },
+    {
+      "amount": "99",
+      "basisPoints": 300,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "0"
+    },
+    {
+      "amount": "100",
+      "basisPoints": 300,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "0"
+    },
+    {
+      "amount": "101",
+      "basisPoints": 300,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "0"
+    },
+    {
+      "amount": "18446744073709551515",
+      "basisPoints": 300,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "0"
+    },
+    {
+      "amount": "18446744073709551615",
+      "basisPoints": 300,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "0"
+    },
+    {
+      "amount": "0",
+      "basisPoints": 300,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "1"
+    },
+    {
+      "amount": "1",
+      "basisPoints": 300,
+      "fee": "1",
+      "inverseFee": "1",
+      "maximumFee": "1"
+    },
+    {
+      "amount": "99",
+      "basisPoints": 300,
+      "fee": "1",
+      "inverseFee": "1",
+      "maximumFee": "1"
+    },
+    {
+      "amount": "100",
+      "basisPoints": 300,
+      "fee": "1",
+      "inverseFee": "1",
+      "maximumFee": "1"
+    },
+    {
+      "amount": "101",
+      "basisPoints": 300,
+      "fee": "1",
+      "inverseFee": "1",
+      "maximumFee": "1"
+    },
+    {
+      "amount": "18446744073709551515",
+      "basisPoints": 300,
+      "fee": "1",
+      "inverseFee": "1",
+      "maximumFee": "1"
+    },
+    {
+      "amount": "18446744073709551615",
+      "basisPoints": 300,
+      "fee": "1",
+      "inverseFee": null,
+      "maximumFee": "1"
+    },
+    {
+      "amount": "0",
+      "basisPoints": 300,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "100"
+    },
+    {
+      "amount": "1",
+      "basisPoints": 300,
+      "fee": "1",
+      "inverseFee": "1",
+      "maximumFee": "100"
+    },
+    {
+      "amount": "99",
+      "basisPoints": 300,
+      "fee": "3",
+      "inverseFee": "4",
+      "maximumFee": "100"
+    },
+    {
+      "amount": "100",
+      "basisPoints": 300,
+      "fee": "3",
+      "inverseFee": "4",
+      "maximumFee": "100"
+    },
+    {
+      "amount": "101",
+      "basisPoints": 300,
+      "fee": "4",
+      "inverseFee": "4",
+      "maximumFee": "100"
+    },
+    {
+      "amount": "18446744073709551515",
+      "basisPoints": 300,
+      "fee": "100",
+      "inverseFee": "100",
+      "maximumFee": "100"
+    },
+    {
+      "amount": "18446744073709551615",
+      "basisPoints": 300,
+      "fee": "100",
+      "inverseFee": null,
+      "maximumFee": "100"
+    },
+    {
+      "amount": "0",
+      "basisPoints": 300,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "18446744073709551615"
+    },
+    {
+      "amount": "1",
+      "basisPoints": 300,
+      "fee": "1",
+      "inverseFee": "1",
+      "maximumFee": "18446744073709551615"
+    },
+    {
+      "amount": "99",
+      "basisPoints": 300,
+      "fee": "3",
+      "inverseFee": "4",
+      "maximumFee": "18446744073709551615"
+    },
+    {
+      "amount": "100",
+      "basisPoints": 300,
+      "fee": "3",
+      "inverseFee": "4",
+      "maximumFee": "18446744073709551615"
+    },
+    {
+      "amount": "101",
+      "basisPoints": 300,
+      "fee": "4",
+      "inverseFee": "4",
+      "maximumFee": "18446744073709551615"
+    },
+    {
+      "amount": "18446744073709551515",
+      "basisPoints": 300,
+      "fee": "553402322211286546",
+      "inverseFee": null,
+      "maximumFee": "18446744073709551615"
+    },
+    {
+      "amount": "18446744073709551615",
+      "basisPoints": 300,
+      "fee": "553402322211286549",
+      "inverseFee": null,
+      "maximumFee": "18446744073709551615"
+    },
+    {
+      "amount": "0",
+      "basisPoints": 9999,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "0"
+    },
+    {
+      "amount": "1",
+      "basisPoints": 9999,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "0"
+    },
+    {
+      "amount": "99",
+      "basisPoints": 9999,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "0"
+    },
+    {
+      "amount": "100",
+      "basisPoints": 9999,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "0"
+    },
+    {
+      "amount": "101",
+      "basisPoints": 9999,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "0"
+    },
+    {
+      "amount": "18446744073709551515",
+      "basisPoints": 9999,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "0"
+    },
+    {
+      "amount": "18446744073709551615",
+      "basisPoints": 9999,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "0"
+    },
+    {
+      "amount": "0",
+      "basisPoints": 9999,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "1"
+    },
+    {
+      "amount": "1",
+      "basisPoints": 9999,
+      "fee": "1",
+      "inverseFee": "1",
+      "maximumFee": "1"
+    },
+    {
+      "amount": "99",
+      "basisPoints": 9999,
+      "fee": "1",
+      "inverseFee": "1",
+      "maximumFee": "1"
+    },
+    {
+      "amount": "100",
+      "basisPoints": 9999,
+      "fee": "1",
+      "inverseFee": "1",
+      "maximumFee": "1"
+    },
+    {
+      "amount": "101",
+      "basisPoints": 9999,
+      "fee": "1",
+      "inverseFee": "1",
+      "maximumFee": "1"
+    },
+    {
+      "amount": "18446744073709551515",
+      "basisPoints": 9999,
+      "fee": "1",
+      "inverseFee": "1",
+      "maximumFee": "1"
+    },
+    {
+      "amount": "18446744073709551615",
+      "basisPoints": 9999,
+      "fee": "1",
+      "inverseFee": null,
+      "maximumFee": "1"
+    },
+    {
+      "amount": "0",
+      "basisPoints": 9999,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "100"
+    },
+    {
+      "amount": "1",
+      "basisPoints": 9999,
+      "fee": "1",
+      "inverseFee": "100",
+      "maximumFee": "100"
+    },
+    {
+      "amount": "99",
+      "basisPoints": 9999,
+      "fee": "99",
+      "inverseFee": "100",
+      "maximumFee": "100"
+    },
+    {
+      "amount": "100",
+      "basisPoints": 9999,
+      "fee": "100",
+      "inverseFee": "100",
+      "maximumFee": "100"
+    },
+    {
+      "amount": "101",
+      "basisPoints": 9999,
+      "fee": "100",
+      "inverseFee": "100",
+      "maximumFee": "100"
+    },
+    {
+      "amount": "18446744073709551515",
+      "basisPoints": 9999,
+      "fee": "100",
+      "inverseFee": "100",
+      "maximumFee": "100"
+    },
+    {
+      "amount": "18446744073709551615",
+      "basisPoints": 9999,
+      "fee": "100",
+      "inverseFee": null,
+      "maximumFee": "100"
+    },
+    {
+      "amount": "0",
+      "basisPoints": 9999,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "18446744073709551615"
+    },
+    {
+      "amount": "1",
+      "basisPoints": 9999,
+      "fee": "1",
+      "inverseFee": "9999",
+      "maximumFee": "18446744073709551615"
+    },
+    {
+      "amount": "99",
+      "basisPoints": 9999,
+      "fee": "99",
+      "inverseFee": "989901",
+      "maximumFee": "18446744073709551615"
+    },
+    {
+      "amount": "100",
+      "basisPoints": 9999,
+      "fee": "100",
+      "inverseFee": "999900",
+      "maximumFee": "18446744073709551615"
+    },
+    {
+      "amount": "101",
+      "basisPoints": 9999,
+      "fee": "101",
+      "inverseFee": "1009899",
+      "maximumFee": "18446744073709551615"
+    },
+    {
+      "amount": "18446744073709551515",
+      "basisPoints": 9999,
+      "fee": "18444899399302180560",
+      "inverseFee": null,
+      "maximumFee": "18446744073709551615"
+    },
+    {
+      "amount": "18446744073709551615",
+      "basisPoints": 9999,
+      "fee": "18444899399302180660",
+      "inverseFee": null,
+      "maximumFee": "18446744073709551615"
+    },
+    {
+      "amount": "0",
+      "basisPoints": 10000,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "0"
+    },
+    {
+      "amount": "1",
+      "basisPoints": 10000,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "0"
+    },
+    {
+      "amount": "99",
+      "basisPoints": 10000,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "0"
+    },
+    {
+      "amount": "100",
+      "basisPoints": 10000,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "0"
+    },
+    {
+      "amount": "101",
+      "basisPoints": 10000,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "0"
+    },
+    {
+      "amount": "18446744073709551515",
+      "basisPoints": 10000,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "0"
+    },
+    {
+      "amount": "18446744073709551615",
+      "basisPoints": 10000,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "0"
+    },
+    {
+      "amount": "0",
+      "basisPoints": 10000,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "1"
+    },
+    {
+      "amount": "1",
+      "basisPoints": 10000,
+      "fee": "1",
+      "inverseFee": "1",
+      "maximumFee": "1"
+    },
+    {
+      "amount": "99",
+      "basisPoints": 10000,
+      "fee": "1",
+      "inverseFee": "1",
+      "maximumFee": "1"
+    },
+    {
+      "amount": "100",
+      "basisPoints": 10000,
+      "fee": "1",
+      "inverseFee": "1",
+      "maximumFee": "1"
+    },
+    {
+      "amount": "101",
+      "basisPoints": 10000,
+      "fee": "1",
+      "inverseFee": "1",
+      "maximumFee": "1"
+    },
+    {
+      "amount": "18446744073709551515",
+      "basisPoints": 10000,
+      "fee": "1",
+      "inverseFee": "1",
+      "maximumFee": "1"
+    },
+    {
+      "amount": "18446744073709551615",
+      "basisPoints": 10000,
+      "fee": "1",
+      "inverseFee": null,
+      "maximumFee": "1"
+    },
+    {
+      "amount": "0",
+      "basisPoints": 10000,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "100"
+    },
+    {
+      "amount": "1",
+      "basisPoints": 10000,
+      "fee": "1",
+      "inverseFee": "100",
+      "maximumFee": "100"
+    },
+    {
+      "amount": "99",
+      "basisPoints": 10000,
+      "fee": "99",
+      "inverseFee": "100",
+      "maximumFee": "100"
+    },
+    {
+      "amount": "100",
+      "basisPoints": 10000,
+      "fee": "100",
+      "inverseFee": "100",
+      "maximumFee": "100"
+    },
+    {
+      "amount": "101",
+      "basisPoints": 10000,
+      "fee": "100",
+      "inverseFee": "100",
+      "maximumFee": "100"
+    },
+    {
+      "amount": "18446744073709551515",
+      "basisPoints": 10000,
+      "fee": "100",
+      "inverseFee": "100",
+      "maximumFee": "100"
+    },
+    {
+      "amount": "18446744073709551615",
+      "basisPoints": 10000,
+      "fee": "100",
+      "inverseFee": null,
+      "maximumFee": "100"
+    },
+    {
+      "amount": "0",
+      "basisPoints": 10000,
+      "fee": "0",
+      "inverseFee": "0",
+      "maximumFee": "18446744073709551615"
+    },
+    {
+      "amount": "1",
+      "basisPoints": 10000,
+      "fee": "1",
+      "inverseFee": null,
+      "maximumFee": "18446744073709551615"
+    },
+    {
+      "amount": "99",
+      "basisPoints": 10000,
+      "fee": "99",
+      "inverseFee": null,
+      "maximumFee": "18446744073709551615"
+    },
+    {
+      "amount": "100",
+      "basisPoints": 10000,
+      "fee": "100",
+      "inverseFee": null,
+      "maximumFee": "18446744073709551615"
+    },
+    {
+      "amount": "101",
+      "basisPoints": 10000,
+      "fee": "101",
+      "inverseFee": null,
+      "maximumFee": "18446744073709551615"
+    },
+    {
+      "amount": "18446744073709551515",
+      "basisPoints": 10000,
+      "fee": "18446744073709551515",
+      "inverseFee": null,
+      "maximumFee": "18446744073709551615"
+    },
+    {
+      "amount": "18446744073709551615",
+      "basisPoints": 10000,
+      "fee": "18446744073709551615",
+      "inverseFee": null,
+      "maximumFee": "18446744073709551615"
+    }
+  ],
+  "scope": "official forward/inverse arithmetic; null inverse denotes unreachable u64 gross, not zero fee"
+}

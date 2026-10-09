@@ -14,7 +14,11 @@ const normalizeQuote = (mint: PublicKey): PublicKey =>
   mint.equals(new PublicKey("So11111111111111111111111111111111111111111"))
     ? WSOL
     : mint;
-const normalizeHop = (hop: PumpMultiHop): PumpMultiHop => {
+const normalizeHop = <
+  T extends { quoteMint: PublicKey; quoteTokenProgram: PublicKey },
+>(
+  hop: T,
+): T => {
   const quoteMint = normalizeQuote(hop.quoteMint);
   return {
     ...hop,
@@ -48,7 +52,7 @@ export interface PumpCompactAccountParams {
 export function derivePumpV3Accounts(
   p: PumpCompactAccountParams,
 ): PumpUpgradeAccounts {
-  p = { ...p, quoteMint: normalizeQuote(p.quoteMint) };
+  p = normalizeHop(p);
   if (p.cashback) throw new Error("Cashback coins require Pump v2");
   if (p.complete) throw new Error("BondingCurveComplete");
   const program = COMPACT_PUMP_PROGRAM,
@@ -87,7 +91,7 @@ export function derivePumpSwapV2Accounts(
     quoteVault: PublicKey;
   },
 ): PumpUpgradeAccounts {
-  p = { ...p, quoteMint: normalizeQuote(p.quoteMint) };
+  p = normalizeHop(p);
   if (p.cashback) throw new Error("Cashback pools require PumpSwap v1");
   const program = COMPACT_AMM_PROGRAM;
   return {

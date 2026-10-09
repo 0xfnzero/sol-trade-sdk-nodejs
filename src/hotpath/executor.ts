@@ -1,3 +1,4 @@
+import { withDeadline } from "../common/deadline";
 /**
  * Hot Path Executor for Sol Trade SDK
  *
@@ -7,7 +8,7 @@
  * Key principle: Prepare everything, then execute with minimal latency.
  */
 
-import { Connection, PublicKey, Transaction, TransactionInstruction } from '@solana/web3.js';
+import { ComputeBudgetProgram, SystemProgram, Connection, PublicKey, Transaction, TransactionInstruction, type Signer } from '@solana/web3.js';
 import {
   HotPathState,
   HotPathConfig,
@@ -258,14 +259,12 @@ export class HotPathExecutor {
     clients: SwqosClient[],
     opts: ExecuteOptions
   ): Promise<ExecuteResult> {
+    const waits = new AbortController();
     const submitToClient = async (client: SwqosClient): Promise<ExecuteResult> => {
       try {
-        const signature = await Promise.race([
-          client.sendTransaction(tradeType, txBytes, false),
-          new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error('Timeout')), opts.timeoutMs)
-          ),
-        ]);
+        const signature = await withDeadline(
+          () => client.sendTransaction(tradeType, txBytes, false), opts.timeoutMs, waits.signal
+        );
         return {
           signature,
           success: true,
@@ -299,6 +298,8 @@ export class HotPathExecutor {
       const { index, result } = await Promise.race(pending.values());
       pending.delete(index);
       if (result.success) {
+        // Release losing deadlines; transports continue independently.
+        waits.abort();
         return result;
       }
       if (result.error) {
@@ -329,12 +330,9 @@ export class HotPathExecutor {
     for (let retry = 0; retry < opts.maxRetries; retry++) {
       for (const client of clients) {
         try {
-          const signature = await Promise.race([
-            client.sendTransaction(tradeType, txBytes, false),
-            new Promise<never>((_, reject) =>
-              setTimeout(() => reject(new Error('Timeout')), opts.timeoutMs)
-            ),
-          ]);
+          const signature = await withDeadline(
+            () => client.sendTransaction(tradeType, txBytes, false), opts.timeoutMs
+          );
           return {
             signature,
             success: true,
@@ -404,7 +402,7 @@ export class TransactionBuilder {
   async buildTransaction(
     payer: PublicKey,
     instructions: TransactionInstruction[],
-    signers: any[], // Keypair[]
+    signers: Signer[],
     gasConfig?: GasFeeConfig
   ): Promise<Transaction | null> {
     // Get blockhash from cache
@@ -415,15 +413,28 @@ export class TransactionBuilder {
 
     // Build transaction
     const tx = new Transaction();
+    // Durable nonce recognition requires the advance instruction at index zero.
+    const first = instructions[0];
+    const nonceFirst = first?.programId.equals(SystemProgram.programId)
+      && first.data.length === 4 && first.data.readUInt32LE(0) === 4;
+    if (nonceFirst) tx.add(first!);
 
     // Add compute budget instructions if gas config provided
     if (gasConfig) {
-      // Add compute budget instructions
-      // These would use the compute budget program
+      if (!Number.isInteger(gasConfig.computeUnitLimit) || gasConfig.computeUnitLimit < 0 || gasConfig.computeUnitLimit > 0xffffffff ||
+          !Number.isSafeInteger(gasConfig.computeUnitPrice) || gasConfig.computeUnitPrice < 0) {
+        throw new Error('Invalid compute budget limit or price');
+      }
+      tx.add(
+        ComputeBudgetProgram.setComputeUnitLimit({ units: gasConfig.computeUnitLimit }),
+        ComputeBudgetProgram.setComputeUnitPrice({ microLamports: gasConfig.computeUnitPrice }),
+      );
     }
 
     // Add main instructions
-    tx.add(...instructions);
+    for (let index = nonceFirst ? 1 : 0; index < instructions.length; index++) {
+      tx.add(instructions[index]!);
+    }
 
     // Set blockhash and payer
     tx.recentBlockhash = blockhashData.blockhash;
@@ -431,6 +442,9 @@ export class TransactionBuilder {
 
     // Sign transaction
     tx.sign(...signers);
+    if (tx.signatures.some(({ signature }) => signature === null)) {
+      throw new Error('Missing required transaction signer');
+    }
 
     return tx;
   }
