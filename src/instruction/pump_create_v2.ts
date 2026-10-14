@@ -20,11 +20,14 @@ export function buildPumpCreateV2Instruction(
   p: PumpCreateV2Params,
   remaining: readonly AccountMeta[] = [],
 ): TransactionInstruction {
-  if (
-    ![0, 3, 4, 5, 8].includes(remaining.length) ||
-    remaining.some((a, i) => a.isSigner || a.isWritable !== (i === 1))
-  )
+  let validCount = [0, 3, 4].includes(remaining.length);
+  for (let groups = 1; groups <= 5; groups++) {
+    const pools = (remaining.length - 4 - groups) / 3;
+    validCount ||= Number.isInteger(pools) && pools >= 0 && pools <= groups;
+  }
+  if (!validCount || remaining.some((a, i) => a.isSigner || a.isWritable !== (i === 1)))
     throw new Error("Invalid quote creation accounts");
+
   if (remaining.length >= 5 && p.mayhem)
     throw new Error("Mayhem pump coin quote not allowed");
   const fee = p.creatorFeeBps ?? 0n;

@@ -482,14 +482,14 @@ export const SOYAS_ENDPOINTS: Record<SwqosRegion, string> = {
 };
 
 export const SPEEDLANDING_ENDPOINTS: Record<SwqosRegion, string> = {
-  [SwqosRegion.NewYork]: 'nyc.speedlanding.trade:17778',
+  [SwqosRegion.NewYork]: 'ny.speedlanding.trade:17778',
   [SwqosRegion.Frankfurt]: 'fra.speedlanding.trade:17778',
   [SwqosRegion.Amsterdam]: 'ams.speedlanding.trade:17778',
-  [SwqosRegion.Dublin]: 'ams.speedlanding.trade:17778',
-  [SwqosRegion.SLC]: 'nyc.speedlanding.trade:17778',
+  [SwqosRegion.Dublin]: 'lon.speedlanding.trade:17778',
+  [SwqosRegion.SLC]: 'ny.speedlanding.trade:17778',
   [SwqosRegion.Tokyo]: 'tyo.speedlanding.trade:17778',
-  [SwqosRegion.London]: 'ams.speedlanding.trade:17778',
-  [SwqosRegion.LosAngeles]: 'nyc.speedlanding.trade:17778',
+  [SwqosRegion.London]: 'lon.speedlanding.trade:17778',
+  [SwqosRegion.LosAngeles]: 'ny.speedlanding.trade:17778',
   [SwqosRegion.Singapore]: 'sgp.speedlanding.trade:17778',
   [SwqosRegion.Default]: 'fra.speedlanding.trade:17778',
 };
@@ -2224,7 +2224,7 @@ export class SoyasClient implements SwqosClient {
  * Speedlanding SWQOS client.
  *
  * Transport: QUIC with self-signed Ed25519 cert, ALPN "solana-tpu".
- * Endpoint:  host:port (e.g. nyc.speedlanding.trade:17778)
+ * Endpoint:  host:port (e.g. ny.speedlanding.trade:17778)
  * SNI:       fixed "speed-landing" to match Rust SDK behavior.
  * Requires:  npm install @matrixai/quic selfsigned
  */

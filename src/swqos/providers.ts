@@ -17,6 +17,7 @@ import {
   ClientFactory as SenderClientFactory,
   SolamiClient as SenderSolamiClient,
   SpeedlandingClient as SenderSpeedlandingClient,
+  SPEEDLANDING_ENDPOINTS,
 } from './clients';
 
 // ===== Enums =====
@@ -1060,7 +1061,7 @@ export class SpeedlandingClient extends SwqosClient {
 
   constructor(config: SwqosConfig) {
     super(config);
-    this.endpoint = config.url || 'nyc.speedlanding.trade:17778';
+    this.endpoint = config.url || SPEEDLANDING_ENDPOINTS[config.region ?? SwqosRegion.Default];
   }
 
   async submitTransaction(transaction: Buffer, _tip = 0): Promise<TransactionResult> {

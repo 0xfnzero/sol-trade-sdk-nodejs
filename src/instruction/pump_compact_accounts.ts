@@ -239,49 +239,45 @@ export function derivePumpMultiHopAccounts(
   };
 }
 
-/** Additional create_v2 roles for an unlisted Pump coin quote; state is fetched by caller. */
+/** Create quote groups, Q first then its ancestors nearest first. No RPC calls.
+ * chain has exactly Q's stored depth entries; the bottom quote must be listed. */
 export function derivePumpCoinQuoteCreateAccounts(
   newMint: PublicKey,
   quote: PumpMultiHop,
   depth: number,
   maxDepth: number,
   listedQuoteMints: readonly PublicKey[],
+  chain: readonly PumpMultiHop[] = [],
 ): import("@solana/web3.js").AccountMeta[] {
-  quote = normalizeHop(quote);
-  if (
-    !Number.isInteger(depth) ||
-    !Number.isInteger(maxDepth) ||
-    depth < 0 ||
-    depth >= maxDepth
-  )
+  if (!Number.isInteger(depth) || !Number.isInteger(maxDepth) ||
+      depth < 0 || depth >= Math.min(maxDepth, 5))
     throw new Error("CurveDepthExceeded");
-  const supported = [
-    WSOL,
+  if (chain.length !== depth) throw new Error("QuoteChainAccountsRequired");
+  const hops = [quote, ...chain].map(normalizeHop);
+  const supported = [WSOL,
     new PublicKey("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"),
-    ...listedQuoteMints,
-  ];
-  if (depth === 0 && !supported.some((m) => m.equals(quote.quoteMint)))
+    ...listedQuoteMints.map(normalizeQuote)];
+  if (!supported.some(m => m.equals(hops[hops.length - 1]!.quoteMint)))
     throw new Error("QuoteBondingCurveNotEligible");
-  derivePumpMultiHopAccounts(
-    newMint,
-    quote.quoteMint,
-    quote.baseMint,
-    newMint,
-    [quote],
-  );
+  // Later ancestor whitelist entries do not rewrite Q's stored depth.
+  const seen = new Set([newMint.toBase58()]);
+  for (let i = 0; i < hops.length; i++) {
+    const h = hops[i]!;
+    if (seen.has(h.baseMint.toBase58())) throw new Error("Invalid quote chain");
+    seen.add(h.baseMint.toBase58());
+    if (i > 0 && (!hops[i-1]!.quoteMint.equals(h.baseMint) ||
+        !hops[i-1]!.quoteTokenProgram.equals(h.baseTokenProgram)))
+      throw new Error("Discontinuous quote chain");
+    if (h.venue === "curve" && h.complete) throw new Error("QuoteCurveAwaitingMigration");
+    derivePumpMultiHopAccounts(newMint, h.quoteMint, h.baseMint, newMint, [{...h, mayhem: i === 0 && h.mayhem}]);
+  }
+  quote = hops[0]!;
   const curve = pda(COMPACT_PUMP_PROGRAM, "bonding-curve", newMint);
-  const keys = [
-    quote.baseMint,
-    ata(curve, quote.baseMint, quote.baseTokenProgram),
-    quote.baseTokenProgram,
-    pda(COMPACT_PUMP_PROGRAM, "quote-control"),
-    pda(COMPACT_PUMP_PROGRAM, "bonding-curve", quote.baseMint),
-  ];
-  if (quote.venue === "pool")
-    keys.push(quote.address, quote.baseVault, quote.quoteVault);
-  return keys.map((pubkey, i) => ({
-    pubkey,
-    isSigner: false,
-    isWritable: i === 1,
-  }));
+  const keys = [quote.baseMint, ata(curve, quote.baseMint, quote.baseTokenProgram),
+    quote.baseTokenProgram, pda(COMPACT_PUMP_PROGRAM, "quote-control")];
+  for (const h of hops) {
+    keys.push(pda(COMPACT_PUMP_PROGRAM, "bonding-curve", h.baseMint));
+    if (h.venue === "pool") keys.push(h.address, h.baseVault, h.quoteVault);
+  }
+  return keys.map((pubkey, i) => ({pubkey, isSigner: false, isWritable: i === 1}));
 }
