@@ -67,7 +67,7 @@ describe('PumpSwap virtual quote reserves', () => {
     )).toEqual({
       internalQuoteAmountOut: 16_201_203n,
       uiQuote: 16_112_095n,
-      minQuote: 15_910_694n,
+      minQuote: 15_910_693n,
     });
     expect(sellQuoteInputInternalWithFees(
       500_000_000n,

@@ -1,0 +1,8 @@
+{
+  "snapshot": "snapshot.json.gz",
+  "sha256": "578f41a793ef509f7cad75ccf7a8ab6922a8154f439beaa93c6070004fc7121b",
+  "programs": "programs.json.gz",
+  "programs_manifest": "programs.json",
+  "repetitions": 2,
+  "benchmark_iterations": 0
+}

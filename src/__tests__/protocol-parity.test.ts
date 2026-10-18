@@ -23,6 +23,7 @@ import {
   buildBuyInstructions as buildPumpSwapBuyInstructions,
   buildSellInstructions as buildPumpSwapSellInstructions,
   getCoinCreatorVaultAta,
+  getCoinCreatorVaultAuthority,
   getPumpPoolAuthorityPDA,
   getAssociatedTokenAddress as getPumpSwapAssociatedTokenAddress,
   getPoolV2PDA,
@@ -59,7 +60,7 @@ function pumpFunProtocolParams(quoteMint: PublicKey = PublicKey.default) {
 }
 
 function pumpSwapProtocolParams(overrides: Partial<PumpSwapParams> = {}): PumpSwapParams {
-  return {
+  const p = {
     pool: pk(21),
     baseMint: pk(22),
     quoteMint: CONSTANTS.WSOL_TOKEN_ACCOUNT,
@@ -82,6 +83,9 @@ function pumpSwapProtocolParams(overrides: Partial<PumpSwapParams> = {}): PumpSw
     },
     ...overrides,
   };
+  p.coinCreatorVaultAuthority = getCoinCreatorVaultAuthority(p.coinCreator);
+  p.coinCreatorVaultAta = getCoinCreatorVaultAta(p.coinCreator,p.quoteMint,p.quoteTokenProgram);
+  return p;
 }
 
 function feeConfigBytes(): Buffer {
@@ -445,10 +449,10 @@ describe('protocol instruction parity', () => {
     expect([...ix.data.subarray(0, 8)]).toEqual([...PUMPSWAP_BUY_DISCRIMINATOR]);
     expect(ix.data.length).toBe(25);
     expect(ix.data.readBigUInt64LE(8)).toBe(123n);
-    expect(ix.data.readUInt8(24)).toBe(0);
+    expect(ix.data.readUInt8(24)).toBe(1);
   });
 
-  it('uses PumpSwap buy two-arg data for reverse sell path', () => {
+  it('uses PumpSwap exact quote-in data for reverse sell path', () => {
     const payer = pk(99);
     const quoteMint = pk(22);
     const reverseParams = pumpSwapProtocolParams({
@@ -474,8 +478,8 @@ describe('protocol instruction parity', () => {
     expect(closeIx.keys[0]!.pubkey.toBase58()).toBe(userQuoteAta.toBase58());
     expect(closeIx.programId.toBase58()).toBe(CONSTANTS.TOKEN_PROGRAM.toBase58());
 
-    expect([...ix.data.subarray(0, 8)]).toEqual([...PUMPSWAP_BUY_DISCRIMINATOR]);
-    expect(ix.data.length).toBe(24);
+    expect([...ix.data.subarray(0, 8)]).toEqual([...PUMPSWAP_BUY_EXACT_QUOTE_IN_DISCRIMINATOR]);
+    expect(ix.data.length).toBe(25);
     expect([...PUMPSWAP_SELL_DISCRIMINATOR]).not.toEqual([...ix.data.subarray(0, 8)]);
   });
 

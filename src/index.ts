@@ -740,6 +740,8 @@ export interface PumpSwapParams {
   isMayhemMode: boolean;
   isCashbackCoin: boolean;
   poolCreator?: PublicKey;
+  protocolFeeRecipientOverride?: PublicKey;
+  protocolExtraFeeRecipientOverride?: PublicKey;
   coinCreator?: PublicKey;
   cashbackFeeBasisPoints?: bigint;
   feeBasisPoints?: {
@@ -2138,8 +2140,15 @@ export class TradingClient {
           quoteTokenProgram: p.quoteTokenProgram,
           isMayhemMode: p.isMayhemMode,
           isCashbackCoin: p.isCashbackCoin,
+          coinCreator: p.coinCreator,
+          feeBasisPoints: p.feeBasisPoints,
+          cashbackFeeBasisPoints: p.cashbackFeeBasisPoints,
+          protocolFeeRecipientOverride: p.protocolFeeRecipientOverride,
+          protocolExtraFeeRecipientOverride: p.protocolExtraFeeRecipientOverride,
         };
         return buildPumpSwapBuyInstructions({
+          inputMint: this.getInputMint(params.inputTokenType),
+          outputMint: params.mint,
           payer: this.payer.publicKey,
           inputAmount: inputAmt,
           slippageBasisPoints: slippage,
@@ -2335,8 +2344,15 @@ export class TradingClient {
           quoteTokenProgram: p.quoteTokenProgram,
           isMayhemMode: p.isMayhemMode,
           isCashbackCoin: p.isCashbackCoin,
+          coinCreator: p.coinCreator,
+          feeBasisPoints: p.feeBasisPoints,
+          cashbackFeeBasisPoints: p.cashbackFeeBasisPoints,
+          protocolFeeRecipientOverride: p.protocolFeeRecipientOverride,
+          protocolExtraFeeRecipientOverride: p.protocolExtraFeeRecipientOverride,
         };
         return buildPumpSwapSellInstructions({
+          inputMint: params.mint,
+          outputMint: this.getOutputMint(params.outputTokenType),
           payer: this.payer.publicKey,
           inputAmount: inputAmt,
           slippageBasisPoints: slippage,
@@ -3064,3 +3080,5 @@ export * from './instruction/cpmm_creator_fee';
 
 export {resolveHookAccounts} from './instruction/token2022_hook';
 export {buildWhirlpoolSwapV2WithHooks} from './instruction/native_hops';
+
+export * from './trading/pumpswap_preparation';

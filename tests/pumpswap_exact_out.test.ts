@@ -1,10 +1,10 @@
 import {it,expect} from 'vitest';
 import {PublicKey} from '@solana/web3.js';
-import {buildBuyInstructions,buildSellInstructions,PUMPSWAP_BUY_DISCRIMINATOR,type PumpSwapParams} from '../src/instruction/pumpswap';
+import {getCoinCreatorVaultAuthority,getCoinCreatorVaultAta,buildBuyInstructions,buildSellInstructions,PUMPSWAP_BUY_DISCRIMINATOR,type PumpSwapParams} from '../src/instruction/pumpswap';
 const key=(n:number)=>new PublicKey(new Uint8Array(32).fill(n));
 const token=new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
 const wsol=new PublicKey('So11111111111111111111111111111111111111112');
-function params(reverse=false):PumpSwapParams{return {pool:key(1),baseMint:reverse?wsol:key(2),quoteMint:reverse?key(2):wsol,poolBaseTokenAccount:key(3),poolQuoteTokenAccount:key(4),poolBaseTokenReserves:1000000n,poolQuoteTokenReserves:500000n,virtualQuoteReserves:0n,coinCreatorVaultAta:key(5),coinCreatorVaultAuthority:key(6),baseTokenProgram:token,quoteTokenProgram:token,isMayhemMode:false,isCashbackCoin:false,coinCreator:key(7)}}
+function params(reverse=false):PumpSwapParams{return {pool:key(1),baseMint:reverse?wsol:key(2),quoteMint:reverse?key(2):wsol,poolBaseTokenAccount:key(3),poolQuoteTokenAccount:key(4),poolBaseTokenReserves:1000000n,poolQuoteTokenReserves:500000n,virtualQuoteReserves:0n,coinCreatorVaultAta:getCoinCreatorVaultAta(key(7),reverse?key(2):wsol,token),coinCreatorVaultAuthority:getCoinCreatorVaultAuthority(key(7)),baseTokenProgram:token,quoteTokenProgram:token,isMayhemMode:false,isCashbackCoin:false,coinCreator:key(7)}}
 it('fixed base output preserves explicit quote cap rather than adding slippage',()=>{
  for(const amount of [1n,1000000n]){
   const ix=buildBuyInstructions({payer:key(9),protocolParams:params(),inputAmount:amount,fixedOutputAmount:123n,slippageBasisPoints:300n,createOutputMintAta:false}).at(-1)!;

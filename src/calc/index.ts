@@ -396,6 +396,13 @@ export function buyQuoteInputInternalWithFees(
   };
 }
 
+/** PumpSwap protects floor(output * (1 - slippage)); common SDK rounding differs. */
+export function minimumPumpSwapOutput(amount:bigint,bps:bigint):bigint {
+  if(typeof amount!=='bigint'||amount<0n||typeof bps!=='bigint'||bps<0n)throw Error('Invalid PumpSwap minimum output');
+  return amount*(10000n-(bps>9999n?9999n:bps))/10000n;
+}
+
+
 /**
  * Calculate quote received for selling base tokens on PumpSwap
  */
@@ -451,7 +458,7 @@ export function sellBaseInputInternalWithFees(
     throw new Error('Insufficient real quote reserves to cover the sell output');
   }
   const finalQuote = quoteAmountOut - totalFees;
-  const minQuote = calculateWithSlippageSell(finalQuote, slippageBasisPoints);
+  const minQuote = minimumPumpSwapOutput(finalQuote, slippageBasisPoints);
 
   return {
     uiQuote: finalQuote,
@@ -524,7 +531,7 @@ export function sellQuoteInputInternalWithFees(
     effectiveQuoteReserve - rawQuote,
     'base amount'
   );
-  const minQuote = calculateWithSlippageSell(quote, slippageBasisPoints);
+  const minQuote = minimumPumpSwapOutput(quote, slippageBasisPoints);
 
   return {
     internalRawQuote: rawQuote,

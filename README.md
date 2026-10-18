@@ -60,12 +60,18 @@ Trading SDK language versions and related Rust SDKs:
 
 | Language | Repository | Description | Version |
 |----------|------------|-------------|---------|
-| **Rust** | [sol-trade-sdk](https://github.com/0xfnzero/sol-trade-sdk) | Ultra-low latency with zero-copy optimization | `v6.0.1` |
-| **Node.js** | [sol-trade-sdk-nodejs](https://github.com/0xfnzero/sol-trade-sdk-nodejs) | TypeScript/JavaScript for Node.js | `v0.1.9` |
-| **Python** | [sol-trade-sdk-python](https://github.com/0xfnzero/sol-trade-sdk-python) | Async/await native support | `v0.1.9` |
-| **Go** | [sol-trade-sdk-golang](https://github.com/0xfnzero/sol-trade-sdk-golang) | Concurrent-safe with goroutine support | `v0.1.10` |
+| **Rust** | [sol-trade-sdk](https://github.com/0xfnzero/sol-trade-sdk) | Ultra-low latency with zero-copy optimization | `v6.0.2` |
+| **Node.js** | [sol-trade-sdk-nodejs](https://github.com/0xfnzero/sol-trade-sdk-nodejs) | TypeScript/JavaScript for Node.js | `v0.1.10` |
+| **Python** | [sol-trade-sdk-python](https://github.com/0xfnzero/sol-trade-sdk-python) | Async/await native support | `v0.1.10` |
+| **Go** | [sol-trade-sdk-golang](https://github.com/0xfnzero/sol-trade-sdk-golang) | Concurrent-safe with goroutine support | `v0.1.11` |
 | **Rust** | [sol-parser-sdk](https://github.com/0xfnzero/sol-parser-sdk) | Solana DEX transaction and account event parsing | `v0.7.13` |
 | **Rust** | [sol-shred-sdk](https://github.com/0xfnzero/sol-shred-sdk) | Raw Solana shred decoding and ShredStream DEX event parsing | `v4.0.4` |
+
+## v0.1.10 — PumpSwap custom quotes and creator account fixes
+
+Builds PumpSwap buys and sells with the actual quote mint/token program, validates creator vault identities, honors explicit fee recipients in mayhem mode, and removes an unnecessary global volume write lock. Adds cached quotes, conversion-route selection and complete offline signing preparation, with TTWO pool and SOL→USDC→TTWO→target buy/sell regressions.
+
+Four language implementations share a real 3007 failure fixture and compare instruction data and account privileges. Native local bank regressions use captured public programs/accounts and synthetic wallets. See [PumpSwap fixes and validation](docs/PUMPSWAP_REPORTED_FAILURE.md).
 
 ## v0.1.9 — Pump depth-2 and SpeedLanding regional updates
 
@@ -92,9 +98,9 @@ Validation includes local CPU benchmarks and offline signed-bank scenarios. Meas
 
 ## 🔖 Current Release
 
-**npm package:** `sol-trade-sdk@0.1.8`
+**npm package:** `sol-trade-sdk@0.1.10`
 
-This release refreshes PumpFun V2 and USDC quote-pool handling, keeps the default RPC submit lane active alongside SWQoS lanes, and aligns Raydium CPMM fixed-output swaps with the on-chain `swap_base_out` instruction. Trade execution requires a caller-supplied `recentBlockhash` or durable nonce; hot-path execution does not query RPC for blockhash, account, or balance data.
+This release includes PumpSwap custom quotes, creator account validation, cached routes and offline signing preparation. Execution uses caller-supplied blockhash/nonce and validated account snapshots.
 
 ## v0.1.7 — CPMM creator-fee parity
 
@@ -157,11 +163,11 @@ Add to your `package.json`:
 ### Use NPM
 
 ```bash
-npm install sol-trade-sdk@0.1.9
+npm install sol-trade-sdk@0.1.10
 # or
-yarn add sol-trade-sdk@0.1.9
+yarn add sol-trade-sdk@0.1.10
 # or
-pnpm add sol-trade-sdk@0.1.9
+pnpm add sol-trade-sdk@0.1.10
 ```
 
 ## 🛠️ Usage Examples
@@ -282,24 +288,24 @@ Please ensure that the parameters your trading logic depends on are available in
 
 | Description | Run Command | Source Code |
 |-------------|-------------|-------------|
-| Create and configure TradingClient instance | `npx ts-node examples/trading_client.ts` | [examples/trading_client.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/trading_client.ts) | `v0.1.9` |
-| Share infrastructure across multiple wallets | `npx ts-node examples/shared_infrastructure.ts` | [examples/shared_infrastructure.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/shared_infrastructure.ts) | `v0.1.9` |
-| PumpFun token sniping trading | `npx ts-node examples/pumpfun_sniper_trading.ts` | [examples/pumpfun_sniper_trading.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/pumpfun_sniper_trading.ts) | `v0.1.9` |
-| PumpFun token copy trading | `npx ts-node examples/pumpfun_copy_trading.ts` | [examples/pumpfun_copy_trading.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/pumpfun_copy_trading.ts) | `v0.1.9` |
-| PumpSwap trading operations | `npx ts-node examples/pumpswap_trading.ts` | [examples/pumpswap_trading.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/pumpswap_trading.ts) | `v0.1.9` |
-| PumpSwap direct trading (via RPC) | `npx ts-node examples/pumpswap_direct_trading.ts` | [examples/pumpswap_direct_trading.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/pumpswap_direct_trading.ts) | `v0.1.9` |
-| Raydium CPMM trading operations | `npx ts-node examples/raydium_cpmm_trading.ts` | [examples/raydium_cpmm_trading.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/raydium_cpmm_trading.ts) | `v0.1.9` |
-| Raydium AMM V4 trading operations | `npx ts-node examples/raydium_amm_v4_trading.ts` | [examples/raydium_amm_v4_trading.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/raydium_amm_v4_trading.ts) | `v0.1.9` |
-| Meteora DAMM V2 trading operations | `npx ts-node examples/meteora_damm_v2_trading.ts` | [examples/meteora_damm_v2_trading.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/meteora_damm_v2_trading.ts) | `v0.1.9` |
-| Bonk token sniping trading | `npx ts-node examples/bonk_sniper_trading.ts` | [examples/bonk_sniper_trading.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/bonk_sniper_trading.ts) | `v0.1.9` |
-| Bonk token copy trading | `npx ts-node examples/bonk_copy_trading.ts` | [examples/bonk_copy_trading.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/bonk_copy_trading.ts) | `v0.1.9` |
-| Custom instruction middleware example | `npx ts-node examples/middleware_system.ts` | [examples/middleware_system.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/middleware_system.ts) | `v0.1.9` |
-| Address lookup table example | `npx ts-node examples/address_lookup.ts` | [examples/address_lookup.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/address_lookup.ts) | `v0.1.9` |
-| Nonce cache (durable nonce) example | `npx ts-node examples/nonce_cache.ts` | [examples/nonce_cache.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/nonce_cache.ts) | `v0.1.9` |
-| Wrap/unwrap SOL to/from WSOL example | `npx ts-node examples/wsol_wrapper.ts` | [examples/wsol_wrapper.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/wsol_wrapper.ts) | `v0.1.9` |
-| Seed trading example | `npx ts-node examples/seed_trading.ts` | [examples/seed_trading.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/seed_trading.ts) | `v0.1.9` |
-| Gas fee strategy example | `npx ts-node examples/gas_fee_strategy.ts` | [examples/gas_fee_strategy.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/gas_fee_strategy.ts) | `v0.1.9` |
-| Hot path trading (zero-RPC) | `npx ts-node examples/hot_path_trading.ts` | [examples/hot_path_trading.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/hot_path_trading.ts) | `v0.1.9` |
+| Create and configure TradingClient instance | `npx ts-node examples/trading_client.ts` | [examples/trading_client.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/trading_client.ts) | `v0.1.10` |
+| Share infrastructure across multiple wallets | `npx ts-node examples/shared_infrastructure.ts` | [examples/shared_infrastructure.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/shared_infrastructure.ts) | `v0.1.10` |
+| PumpFun token sniping trading | `npx ts-node examples/pumpfun_sniper_trading.ts` | [examples/pumpfun_sniper_trading.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/pumpfun_sniper_trading.ts) | `v0.1.10` |
+| PumpFun token copy trading | `npx ts-node examples/pumpfun_copy_trading.ts` | [examples/pumpfun_copy_trading.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/pumpfun_copy_trading.ts) | `v0.1.10` |
+| PumpSwap trading operations | `npx ts-node examples/pumpswap_trading.ts` | [examples/pumpswap_trading.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/pumpswap_trading.ts) | `v0.1.10` |
+| PumpSwap direct trading (via RPC) | `npx ts-node examples/pumpswap_direct_trading.ts` | [examples/pumpswap_direct_trading.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/pumpswap_direct_trading.ts) | `v0.1.10` |
+| Raydium CPMM trading operations | `npx ts-node examples/raydium_cpmm_trading.ts` | [examples/raydium_cpmm_trading.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/raydium_cpmm_trading.ts) | `v0.1.10` |
+| Raydium AMM V4 trading operations | `npx ts-node examples/raydium_amm_v4_trading.ts` | [examples/raydium_amm_v4_trading.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/raydium_amm_v4_trading.ts) | `v0.1.10` |
+| Meteora DAMM V2 trading operations | `npx ts-node examples/meteora_damm_v2_trading.ts` | [examples/meteora_damm_v2_trading.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/meteora_damm_v2_trading.ts) | `v0.1.10` |
+| Bonk token sniping trading | `npx ts-node examples/bonk_sniper_trading.ts` | [examples/bonk_sniper_trading.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/bonk_sniper_trading.ts) | `v0.1.10` |
+| Bonk token copy trading | `npx ts-node examples/bonk_copy_trading.ts` | [examples/bonk_copy_trading.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/bonk_copy_trading.ts) | `v0.1.10` |
+| Custom instruction middleware example | `npx ts-node examples/middleware_system.ts` | [examples/middleware_system.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/middleware_system.ts) | `v0.1.10` |
+| Address lookup table example | `npx ts-node examples/address_lookup.ts` | [examples/address_lookup.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/address_lookup.ts) | `v0.1.10` |
+| Nonce cache (durable nonce) example | `npx ts-node examples/nonce_cache.ts` | [examples/nonce_cache.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/nonce_cache.ts) | `v0.1.10` |
+| Wrap/unwrap SOL to/from WSOL example | `npx ts-node examples/wsol_wrapper.ts` | [examples/wsol_wrapper.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/wsol_wrapper.ts) | `v0.1.10` |
+| Seed trading example | `npx ts-node examples/seed_trading.ts` | [examples/seed_trading.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/seed_trading.ts) | `v0.1.10` |
+| Gas fee strategy example | `npx ts-node examples/gas_fee_strategy.ts` | [examples/gas_fee_strategy.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/gas_fee_strategy.ts) | `v0.1.10` |
+| Hot path trading (zero-RPC) | `npx ts-node examples/hot_path_trading.ts` | [examples/hot_path_trading.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/hot_path_trading.ts) | `v0.1.10` |
 
 ### ⚙️ SWQoS Service Configuration
 
@@ -462,3 +468,87 @@ const provider: SwqosConfig = {
   minTipSol: 0.0001, // SOL; omit to preserve existing behavior
 };
 ```
+
+### PumpSwap custom quotes and cache-only route preparation
+
+See [reported 3007 failure and synchronized fixes](docs/PUMPSWAP_REPORTED_FAILURE.md)
+for creator validation, explicit fee recipients and readonly volume accounts.
+
+`buildBuyInstructions` / `buildSellInstructions` in `instruction/pumpswap` accept
+`inputMint`, `outputMint`, and optional endpoint token programs. Supply both mints:
+these select the actual quote-to-base buy or base-to-quote sell instruction,
+including custom Token-2022 quotes. A SOL request against a custom quote pool
+requires a conversion route. Creator vault authority/quote ATA and token programs
+are validated locally; high-level trades retain supplied creator and fee context.
+Direct builders require `coinCreator` and complete execution accounts. Enrich
+incomplete parser log events from a verified pool snapshot before building.
+Cache preparation reads and validates the complete creator identity from the
+captured pool state.
+
+`preparePumpSwapTrade(request, orderedHints)` freezes an explicit path;
+`searchPumpSwapTrade(request, {pool, tokenMint, assetMint, conversionPools})`
+chooses the largest final protected output from supplied cached conversion pools.
+Buy and Sell are prepared independently. Each following leg spends only the
+preceding protected credit; intermediate surplus may remain in token accounts.
+Search defaults to two conversion hops and 128 visited nodes, with limits of
+32 supplied hints, three conversion hops and 4096 nodes. Budget exhaustion rejects
+the search rather than returning an incomplete result. Ties prefer fewer hops,
+then raw pool public-key bytes. Invalid candidate routes are reported separately.
+There is no network pool discovery, split routing or packet-cost ranking.
+
+Call `trade.buildSigned({context, recentBlockhash, signers, version, ...})` to build
+a complete signed transaction offline. Version 0 supports caller-provided ALTs,
+durable nonce, compute budget, explicit tip and middleware, with a 1232-byte packet
+limit. Version 1 uses the existing native V1 serializer (4096-byte limit; no ALTs).
+A prepared quote rejects epoch changes and excess slot age. Native SOL uses an
+explicit temporary WSOL account; supply a unique seed and cached rent. The SDK
+does not fetch blockhash/rent/ALTs, simulate, confirm or broadcast during this path.
+Cashback quotes lacking verified fee context and active transfer-fee quotes fail
+closed. Cache slot age is a bound, not proof of fork consistency or execution.
+
+Repeatable native TypeScript fixture replay and signature verification:
+
+```bash
+npx tsx examples/pumpswap_cached_prepare.ts
+npx vitest run tests/pumpswap_preparation.test.ts
+npm run typecheck:examples
+```
+
+The example replays captured TTWO/USDC/WSOL account bytes without RPC and signs
+independent buy/sell conversion transactions. These are offline quote, wire and
+signature tests, not claims of fresh mainnet prices, BPF bank execution or measured
+production latency. Existing generic candidate-route APIs retain their first
+executable route behavior; use the dedicated PumpSwap search for output ranking.
+
+Actual local SBF execution, using pinned deployed programs and captured accounts:
+
+```bash
+npx tsx examples/pumpswap_offline_bank.ts
+npx vitest run tests/pumpswap_offline_bank.test.ts
+```
+
+This separate example executes independent direct buys/sells with static keys and
+ALTs plus full SOL → USDC → TTWO → target routes and their reverse. It checks
+success, excessive-minimum rollback, invalid signatures/ALTs, simulation/send
+state equality and deterministic fresh-bank repetition without RPC. See
+[fixture provenance and configuration](examples/pumpswap_bank/README.md); program
+and account captures come from different historical slots, and wallet funding is
+synthetic. Optional configuration measures local prepare/sign overhead separately;
+it does not measure production latency.
+
+### Repeatable local hot-path benchmark
+
+```sh
+npx tsx examples/hotpath_benchmark.ts
+# Optional: pass the path to your edited JSON configuration
+npx tsx examples/hotpath_benchmark.ts examples/hotpath_benchmark.json
+```
+
+The checked-in JSON config controls warmup, sample count and batch size. Fixture
+loading and setup occur before timing; timed loops perform no RPC or network I/O.
+The fixed workloads measure three-hop PumpSwap preparation, route search and
+prepared V1 transaction building/signing separately.
+Output reports p50/p95/p99 of batch-normalized microseconds per transaction, a
+checksum and runtime metadata. These local CPU distributions include scheduling
+and GC effects; they measure neither provider/network latency nor production
+landing speed. Compare warmed runs with the same runtime, config and host load.

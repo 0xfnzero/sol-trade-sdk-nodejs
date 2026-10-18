@@ -85,15 +85,15 @@
   },
   "slot": "452990569",
   "expected": {
-    "minimum_amount_out": "5788727",
+    "minimum_amount_out": "5788726",
     "legs": [
       {
         "amount_in": "100000000",
         "amount_out": "6093396",
-        "minimum_amount_out": "5788727"
+        "minimum_amount_out": "5788726"
       }
     ],
     "wire_bytes": 1111,
-    "wire_sha256": "4b2764e4445ff59e9b4dbd2706e787fb252956df3b86dd2c970e911a1e91f6b2"
+    "wire_sha256": "abb7e8eff2d17f35b8fef75dc7cf585fb07db6427c7941bf992f02ba02512117"
   }
 }
