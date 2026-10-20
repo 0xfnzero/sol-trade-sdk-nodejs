@@ -1,6 +1,6 @@
 {
   "name": "sol-trade-sdk",
-  "version": "0.1.10",
+  "version": "0.2.0",
   "description": "High-performance Solana trading SDK with multi-protocol support",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
@@ -44,6 +44,9 @@
   },
   "files": [
     "dist",
+    "RELEASE_NOTES.md",
+    "README_CN.md",
+    "docs/cross-language-sync.md",
     "src",
     "docs/USAGE.md",
     "docs/PUMPSWAP_REPORTED_FAILURE.md"
@@ -78,7 +81,7 @@
     "url": "git+https://github.com/0xfnzero/sol-trade-sdk-nodejs.git"
   },
   "dependencies": {
-    "@grpc/grpc-js": "^1.14.4",
+    "@grpc/grpc-js": "^1.14.5",
     "@matrixai/quic": "^2.0.9",
     "@peculiar/x509": "^1.14.2",
     "@solana/web3.js": "^1.98.4",

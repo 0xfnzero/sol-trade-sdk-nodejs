@@ -43,7 +43,7 @@ export * from "./cached_amm_v4";
 
 export {SubscriptionReadiness, CacheNotReadyError, type CacheReadinessState} from "./subscription_readiness";
 
-export {candidateRoutes} from "./route_candidates";
+export {candidateRoutes, CandidateRouteGraph} from "./route_candidates";
 
 export * from "./cached_pumpswap";
 

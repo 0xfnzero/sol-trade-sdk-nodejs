@@ -3082,3 +3082,5 @@ export {resolveHookAccounts} from './instruction/token2022_hook';
 export {buildWhirlpoolSwapV2WithHooks} from './instruction/native_hops';
 
 export * from './trading/pumpswap_preparation';
+export * from './stock_catalog';
+export {CandidateRouteGraph} from './trading/route_candidates';

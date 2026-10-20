@@ -203,7 +203,7 @@ export class AccountCacheSnapshot {
     );
   }
   #accounts: Map<string, CachedAccount>;
-  constructor(accounts: ReadonlyMap<string, CachedAccount>, private readonly continuityGuard?: () => void) {
+  constructor(accounts: ReadonlyMap<string, CachedAccount>, private readonly continuityGuard?: () => void, private readonly observedThrough?: bigint) {
     this.#accounts = new Map(
       [...accounts].map(([k, a]) => {
         u64(a.slot);
@@ -211,6 +211,11 @@ export class AccountCacheSnapshot {
         return [k, owned(a)];
       }),
     );
+  }
+  private stale(accountSlot:bigint,ctx:CacheReadContext):boolean {
+    const observed=this.observedThrough ?? accountSlot;
+    const fresh=observed>accountSlot?observed:accountSlot;
+    return accountSlot>ctx.slot || observed>ctx.slot || ctx.slot-fresh>ctx.maximumSlotAge;
   }
   assertUsable(): void { this.continuityGuard?.(); }
   /** Observed zero-lamport tombstone is absent; an unobserved key still throws. */
@@ -220,14 +225,14 @@ export class AccountCacheSnapshot {
     for (const n of [ctx.slot, ctx.epoch, ctx.maximumSlotAge]) u64(n);
     const a = this.#accounts.get(key.toBase58());
     if (!a) throw Error('Missing cached account: ' + key.toBase58());
-    if (a.slot > ctx.slot || ctx.slot - a.slot > ctx.maximumSlotAge) throw Error('Cached account is future or stale');
+    if (this.stale(a.slot,ctx)) throw Error('Cached account is future or stale');
     return owned(a);
   }
   getOptional(key:PublicKey,ctx:CacheReadContext,expectedOwner?:PublicKey):CachedAccount|null {
     this.assertUsable();for(const n of [ctx.slot,ctx.epoch,ctx.maximumSlotAge])u64(n);
     const a=this.#accounts.get(key.toBase58());
     if(!a)throw Error('Missing cached account: '+key.toBase58());
-    if(a.slot>ctx.slot||ctx.slot-a.slot>ctx.maximumSlotAge)throw Error('Cached account is future or stale');
+    if(this.stale(a.slot,ctx))throw Error('Cached account is future or stale');
     if(!a.data.length)return null;
     if(expectedOwner&&!a.owner.equals(expectedOwner))throw Error('Cached account owner mismatch');
     return owned(a);
@@ -243,7 +248,7 @@ export class AccountCacheSnapshot {
     if (!a) throw new Error("Missing cached account: " + key.toBase58());
     if (expectedOwner && !a.owner.equals(expectedOwner))
       throw new Error("Cached account owner mismatch");
-    if (a.slot > ctx.slot || ctx.slot - a.slot > ctx.maximumSlotAge)
+    if (this.stale(a.slot,ctx))
       throw new Error("Cached account is future or stale");
     if (!a.data.length) throw new Error("Cached account is closed");
     return owned(a);
@@ -516,6 +521,15 @@ export class SubscriptionAccountCache {
     this.assertNoConflict();
     const ready = readiness.guard();
     return new AccountCacheSnapshot(accounts, () => { this.assertNoConflict(); ready(); });
+  }
+  /** Caller attests a complete baseline and uninterrupted observation through slot.
+   * Never derive this from an account replay, local clock or unrelated slot notification. */
+  observedSnapshot(readiness:SubscriptionReadiness,slot:bigint,keys?:Iterable<PublicKey>):AccountCacheSnapshot {
+    u64(slot);
+    const accounts=this.snapshotAccounts(keys);
+    this.assertNoConflict();
+    const ready=readiness.guard();
+    return new AccountCacheSnapshot(accounts,()=>{this.assertNoConflict();ready();},slot);
   }
   /** O(selected account bytes), or O(all account bytes) when keys are omitted. */
   snapshot(keys?: Iterable<PublicKey>): AccountCacheSnapshot {
