@@ -6,11 +6,45 @@ import {AccountCacheSnapshot,PoolTradeHint} from '../trading/subscription_cache'
 import {TradeExecutorFactory,DexType} from '../trading/factory';
 import {prepareCachedTrade,type CachedTradeRequest} from '../trading/cached_trade';
 import {settlePumpFunNativeQuote} from '../trading/pumpfun_settlement';
+import {PumpFunVersion} from '../instruction/pumpfun_builder';
+import {TradeConfigBuilder} from '../index';
 const load=(name:string)=>JSON.parse(readFileSync(new URL('../../examples/fixtures/'+name,import.meta.url),'utf8'));
 function request(v:any):CachedTradeRequest {
- return {dexType:'PumpFun',tradeType:v.trade_type,snapshot:new AccountCacheSnapshot(new Map(v.accounts.map((a:any)=>[a.pubkey,{owner:new PublicKey(a.owner),data:Buffer.from(a.data,'base64'),slot:BigInt(a.slot),writeVersion:BigInt(a.write_version)}]))),hints:v.legs.map((h:any)=>new PoolTradeHint(new PublicKey(h.pool),new PublicKey(h.input_mint),new PublicKey(h.output_mint))),context:{slot:BigInt(v.read_slot),epoch:BigInt(v.epoch),maximumSlotAge:BigInt(v.maximum_slot_age)},payer:new PublicKey(v.payer),amount:BigInt(v.amount),unixTimestamp:BigInt(v.unix_timestamp),recentBlockhash:v.recent_blockhash,slippageBps:v.slippage_bps,nativeInput:v.native_input,nativeOutput:v.native_output,temporaryWsolSeed:v.temporary_wsol_seed,rentLamports:BigInt(v.rent_lamports)};
+ return {pumpfunVersion:v.pumpfun_version,dexType:'PumpFun',tradeType:v.trade_type,snapshot:new AccountCacheSnapshot(new Map(v.accounts.map((a:any)=>[a.pubkey,{owner:new PublicKey(a.owner),data:Buffer.from(a.data,'base64'),slot:BigInt(a.slot),writeVersion:BigInt(a.write_version)}]))),hints:v.legs.map((h:any)=>new PoolTradeHint(new PublicKey(h.pool),new PublicKey(h.input_mint),new PublicKey(h.output_mint))),context:{slot:BigInt(v.read_slot),epoch:BigInt(v.epoch),maximumSlotAge:BigInt(v.maximum_slot_age)},payer:new PublicKey(v.payer),amount:BigInt(v.amount),unixTimestamp:BigInt(v.unix_timestamp),recentBlockhash:v.recent_blockhash,slippageBps:v.slippage_bps,nativeInput:v.native_input,nativeOutput:v.native_output,temporaryWsolSeed:v.temporary_wsol_seed,rentLamports:BigInt(v.rent_lamports)};
 }
 describe('gRPC discovered current PumpFun factory',()=>{
+ it.each(['Buy','Sell'] as const)('V1/V2/V3 %s keeps protected hop amounts and explicit version precedence',direction=>{
+  const base=request(load(`pumpfun_whirlpool_usdc_${direction.toLowerCase()}_20261005.json`));
+  const network=vi.spyOn(globalThis,'fetch').mockImplementation(()=>{throw Error('network forbidden')});
+  try {
+   expect(TradeConfigBuilder.create('http://localhost').build().pumpfunVersion).toBe(PumpFunVersion.V3);
+   const outputs=[];
+   for(const version of Object.values(PumpFunVersion)){
+    const prepared=prepareCachedTrade({...base,pumpfunVersion:version,tradeConfig:{pumpfunVersion:PumpFunVersion.V2}});
+    const anchor=prepared.route.legs[direction==='Buy'?prepared.route.legs.length-1:0]!;
+    const disc=direction==='Buy'
+     ? {v1:[56,252,116,8,158,223,205,95],v2:[194,171,28,70,104,77,91,47],v3:[225,247,80,30,213,179,132,136]}[version]
+     : {v1:[51,230,133,164,1,127,131,173],v2:[93,246,130,60,231,233,64,178],v3:[28,146,222,119,38,196,105,213]}[version];
+    expect([...anchor.instruction.data.subarray(0,8)]).toEqual(disc);
+    expect(anchor.instruction.data.readBigUInt64LE(8)).toBe(anchor.amountIn);
+    expect(anchor.instruction.data.readBigUInt64LE(16)).toBe(anchor.minimumNetAmountOut);
+    if(version===PumpFunVersion.V3)expect(anchor.instruction.keys).toHaveLength(17);
+    outputs.push(prepared.route.minimumNetAmountOut);
+   }
+   expect(new Set(outputs).size).toBe(1);
+   const inherited=prepareCachedTrade({...base,pumpfunVersion:undefined,tradeConfig:TradeConfigBuilder.create('http://localhost').build()});
+   expect(inherited.route.legs[direction==='Buy'?inherited.route.legs.length-1:0]!.instruction.keys).toHaveLength(17);
+   const candidates=base.hints!.map(h=>new PoolTradeHint(h.pool,h.inputMint,h.outputMint,PumpFunVersion.V2));
+   for(const ordered of [candidates,candidates.map(h=>new PoolTradeHint(h.pool,h.outputMint,h.inputMint,h.pumpfunVersion))]){
+    const prepared=prepareCachedTrade({...base,hints:undefined,candidates:ordered,
+     inputMint:base.hints![0]!.inputMint,outputMint:base.hints!.at(-1)!.outputMint,
+     pumpfunVersion:PumpFunVersion.V3});
+    const anchor=prepared.route.legs[direction==='Buy'?prepared.route.legs.length-1:0]!;
+    expect(anchor.hint.pumpfunVersion).toBe(PumpFunVersion.V2);
+    expect(anchor.instruction.keys).toHaveLength(direction==='Buy'?27:26);
+   }
+  } finally {network.mockRestore();}
+ });
  for(const protocol of ['whirlpool','dlmm','clmm'])for(const direction of ['buy','sell'])it(`${protocol} native-quote ${direction} matches actual simulation and rejects missing arrays`,()=>{
   const name=`pumpfun_${protocol}_usdc_${direction}_20261005.json`,v=load(name),network=vi.spyOn(globalThis,'fetch').mockImplementation(()=>{throw Error('network forbidden')});
   try{

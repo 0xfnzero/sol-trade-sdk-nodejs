@@ -1,4 +1,8 @@
 import {pumpFunBuyExact,pumpFunSellExact} from "../calc/pumpfun_exact";
+import {derivePumpV3Accounts} from "./pump_compact_accounts";
+import {buildPumpBuyV3Instruction, buildPumpBuyExactQuoteInV3Instruction, buildPumpSellV3Instruction} from "./pump_upgrade";
+
+export enum PumpFunVersion { Legacy = "v1", V2 = "v2", V3 = "v3" }
 /**
  * PumpFun Protocol Instruction Builder
  *
@@ -279,6 +283,7 @@ export function pumpFunFeeRecipientMeta(
 // ============================================
 
 export interface PumpFunBondingCurve {
+  complete?: boolean;
   account: PublicKey;
   virtualTokenReserves: bigint;
   virtualSolReserves: bigint;
@@ -290,6 +295,14 @@ export interface PumpFunBondingCurve {
 }
 
 export interface PumpFunParams {
+  /** Explicit request version overrides TradeConfig. Low-level omission retains the legacy API. */
+  version?: PumpFunVersion;
+  quoteTokenProgram?: PublicKey;
+  minimumOutputAmount?: bigint;
+  /** Token-quoted V3 requires verified zero-fee mint snapshots. */
+  baseTransferFeeBps?: number;
+  quoteTransferFeeBps?: number;
+  buybackRecipient?: PublicKey;
   bondingCurve: PumpFunBondingCurve;
   creatorVault: PublicKey;
   tokenProgram: PublicKey;
@@ -512,6 +525,16 @@ function getSellSolAmountFromTokenAmount(
 export function buildPumpFunBuyInstructions(
   params: PumpFunBuildBuyParams
 ): TransactionInstruction[] {
+  const version = params.protocolParams.version;
+  if (version === PumpFunVersion.V3) return buildPumpFunV3Instructions(params, true);
+  if (version === PumpFunVersion.V2) return buildPumpFunBuyV2Instructions(params);
+  if (version !== undefined && version !== PumpFunVersion.Legacy) throw Error("Unknown PumpFun version");
+  if (version === PumpFunVersion.Legacy) {
+    if (!isSolQuoteMint(effectiveQuoteMint(params.protocolParams))) throw Error("PumpFun V1 requires a native SOL curve");
+    if (params.inputMint && !params.inputMint.equals(PublicKey.default) && !params.inputMint.equals(SOL_TOKEN_ACCOUNT)) {
+      throw Error("PumpFun V1 buys settle wallet SOL; use cached trade preparation for token settlement");
+    }
+  }
 	const {
 	  payer,
 	  inputMint = SOL_TOKEN_ACCOUNT,
@@ -667,6 +690,16 @@ export function buildPumpFunBuyInstructions(
 export function buildPumpFunSellInstructions(
   params: PumpFunBuildSellParams
 ): TransactionInstruction[] {
+  const version = params.protocolParams.version;
+  if (version === PumpFunVersion.V3) return buildPumpFunV3Instructions(params, false);
+  if (version === PumpFunVersion.V2) return buildPumpFunSellV2Instructions(params);
+  if (version !== undefined && version !== PumpFunVersion.Legacy) throw Error("Unknown PumpFun version");
+  if (version === PumpFunVersion.Legacy) {
+    if (!isSolQuoteMint(effectiveQuoteMint(params.protocolParams))) throw Error("PumpFun V1 requires a native SOL curve");
+    if (params.outputMint && !params.outputMint.equals(PublicKey.default) && !params.outputMint.equals(SOL_TOKEN_ACCOUNT)) {
+      throw Error("PumpFun V1 sells settle wallet SOL; use cached trade preparation for token settlement");
+    }
+  }
   const {
     payer,
     inputMint,
@@ -1136,9 +1169,54 @@ export function buildPumpFunSellV2Instructions(
   return instructions;
 }
 
-/**
- * Build claim cashback instruction for PumpFun
- */
+/** Build from caller-owned state only. Native V3 settles wallet SOL, never a WSOL balance. */
+export function buildPumpFunV3Instructions(params: PumpFunBuildBuyParams | PumpFunBuildSellParams, buy: boolean): TransactionInstruction[] {
+  const p = params.protocolParams, curve = p.bondingCurve;
+  const payer = params.payer instanceof Keypair ? params.payer.publicKey : params.payer;
+  const mint = (buy ? (params as PumpFunBuildBuyParams).outputMint : (params as PumpFunBuildSellParams).inputMint);
+  const quoteMint = effectiveQuoteMint(p), native = isSolQuoteMint(quoteMint);
+  const settlement = buy ? (params as PumpFunBuildBuyParams).inputMint : (params as PumpFunBuildSellParams).outputMint;
+  if (settlement && !settlement.equals(native ? SOL_TOKEN_ACCOUNT : quoteMint)) throw Error("PumpFun V3 quote endpoint mismatch; native curves settle wallet SOL, not WSOL tokens");
+  if (!getBondingCurvePda(mint).equals(curve.account) || curve.complete || curve.isCashbackCoin) throw Error("PumpFun V3 requires a matching active non-cashback curve");
+  const tokenProgram = p.tokenProgram;
+  const quoteTokenProgram = native ? TOKEN_PROGRAM_ID : p.quoteTokenProgram;
+  if (!quoteTokenProgram || ![TOKEN_PROGRAM_ID,TOKEN_2022_PROGRAM_ID].some(k=>k.equals(tokenProgram))
+      || ![TOKEN_PROGRAM_ID,TOKEN_2022_PROGRAM_ID].some(k=>k.equals(quoteTokenProgram))) throw Error("PumpFun V3 requires actual mint token programs");
+  if (!native && (p.baseTransferFeeBps !== 0 || p.quoteTransferFeeBps !== 0 || p.minimumOutputAmount === undefined)) throw Error("Token-quoted V3 requires explicit minimum output and verified zero transfer fees");
+  if ((p.baseTransferFeeBps ?? 0) !== 0 || (p.quoteTransferFeeBps ?? 0) !== 0) throw Error("PumpFun V3 transfer-fee mints are unsupported");
+  let amount = params.inputAmount;
+  const slippage = params.slippageBasisPoints ?? 1000n;
+  if (amount <= 0n || amount >= 1n<<64n || slippage < 0n || slippage > 9999n) throw Error("Invalid PumpFun amount or slippage");
+  const creator = effectiveCreatorForTrade(p);
+  let fixedOutput = params.fixedOutputAmount;
+  if (buy && (params as PumpFunBuildBuyParams).useExactSolAmount === false && fixedOutput === undefined) {
+    if (!native) throw Error("Token-quoted V3 maximum-input buys require an explicit fixed output");
+    fixedOutput = getBuyTokenAmountFromSolAmount(amount, curve, creator);
+    if (fixedOutput >= curve.realTokenReserves) throw Error("Graduating V3 buy requires an explicit output limit");
+    amount = calculateWithSlippageBuy(amount, slippage);
+    if (amount >= 1n << 64n) throw Error("PumpFun V3 maximum input exceeds u64");
+  }
+  const exactOut = buy && fixedOutput !== undefined;
+  let minimum = fixedOutput ?? p.minimumOutputAmount;
+  if (minimum === undefined) {
+    const estimated = buy ? getBuyTokenAmountFromSolAmount(amount, curve, creator)
+      : getSellSolAmountFromTokenAmount(amount, curve, creator);
+    if (buy && estimated >= curve.realTokenReserves) throw Error("Graduating V3 buy requires an explicit minimum output");
+    minimum = calculateWithSlippageSell(estimated, slippage);
+  }
+  if (minimum <= 0n || minimum >= 1n<<64n) throw Error("PumpFun V3 requires a nonzero u64 minimum");
+  const accounts = derivePumpV3Accounts({user:payer,baseMint:mint,quoteMint,baseTokenProgram:tokenProgram,quoteTokenProgram,
+    buybackRecipient:p.buybackRecipient ?? getPumpFunBuybackFeeRecipientRandom(),cashback:curve.isCashbackCoin,complete:curve.complete});
+  const instructions: TransactionInstruction[] = [];
+  const createAta = (m:PublicKey, program:PublicKey) => instructions.push(createAssociatedTokenAccountIdempotentInstruction(payer,getAssociatedTokenAddressSync(m,payer,true,program),payer,m,program));
+  if (buy && (params as PumpFunBuildBuyParams).createOutputMintAta !== false) createAta(mint,tokenProgram);
+  if (!native && (buy ? (params as PumpFunBuildBuyParams).createInputMintAta : (params as PumpFunBuildSellParams).createOutputMintAta)) createAta(quoteMint,quoteTokenProgram);
+  instructions.push(exactOut ? buildPumpBuyV3Instruction(accounts,minimum,amount,false)
+    : buy ? buildPumpBuyExactQuoteInV3Instruction(accounts,amount,minimum,false) : buildPumpSellV3Instruction(accounts,amount,minimum));
+  if (!buy && (params.closeInputMintAta || p.closeTokenAccountWhenSell)) instructions.push(createCloseAccountInstruction(getAssociatedTokenAddressSync(mint,payer,true,tokenProgram),payer,payer,[],tokenProgram));
+  return instructions;
+}
+
 export function buildPumpFunClaimCashbackInstruction(payer: PublicKey): TransactionInstruction {
   const userVolumeAccumulator = getPumpFunUserVolumeAccumulatorPda(payer);
 

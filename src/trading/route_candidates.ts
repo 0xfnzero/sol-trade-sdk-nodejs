@@ -10,7 +10,7 @@ export class CandidateRouteGraph {
   constructor(candidates: readonly PoolTradeHint[]) {
     const byPool = new Map<string, PoolTradeHint>();
     for (const h of candidates) {
-      new PoolTradeHint(h.pool, h.inputMint, h.outputMint);
+      new PoolTradeHint(h.pool, h.inputMint, h.outputMint, h.pumpfunVersion);
       const name = h.pool.toBase58(),
         previous = byPool.get(name);
       if (
@@ -29,13 +29,14 @@ export class CandidateRouteGraph {
           new PublicKey(h.pool.toBytes()),
           new PublicKey(h.inputMint.toBytes()),
           new PublicKey(h.outputMint.toBytes()),
+          h.pumpfunVersion,
         ),
       );
       if (byPool.size > 64)
         throw Error("Candidate search budget: maximum 64 pools");
     }
     const edges = [...byPool.values()]
-      .flatMap((h) => [h, new PoolTradeHint(h.pool, h.outputMint, h.inputMint)])
+      .flatMap((h) => [h, new PoolTradeHint(h.pool, h.outputMint, h.inputMint, h.pumpfunVersion)])
       .map((h) => ({
         hint: h,
         pool: h.pool.toBase58(),
@@ -94,6 +95,7 @@ export class CandidateRouteGraph {
                   new PublicKey(h.pool.toBytes()),
                   new PublicKey(h.inputMint.toBytes()),
                   new PublicKey(h.outputMint.toBytes()),
+                  h.pumpfunVersion,
                 ),
             );
           } else if (depth + 1 < maximumHops) {

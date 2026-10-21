@@ -75,7 +75,7 @@ export function decodeDlmmBins(
   }
   return result;
 }
-export function prepareCachedDlmm(
+function calculateCachedDlmm(
   snapshot: AccountCacheSnapshot,
   hint: PoolTradeHint,
   ctx: CacheReadContext,
@@ -83,7 +83,7 @@ export function prepareCachedDlmm(
   payer: PublicKey,
   amount: bigint,
   slippageBps = 0,
-  maximumArrays = 8,
+  maximumArrays = 8, quoteOnly = false
 ) {
   if (
     typeof amount !== "bigint" ||
@@ -229,6 +229,7 @@ export function prepareCachedDlmm(
         epoch: ctx.epoch,
         binsCrossed: r.binsCrossed,
       };
+      if (quoteOnly) { return {quote,accounts:undefined,instruction:undefined}; }
       const accounts: MeteoraDlmmSwap2Accounts = {
         lb_pair: hint.pool,
         reserve_x: key(152),
@@ -264,4 +265,31 @@ export function prepareCachedDlmm(
       throw Error("DLMM quote exceeds array budget");
   }
   throw Error("Insufficient DLMM liquidity in supplied snapshot");
+}
+
+export function prepareCachedDlmm(
+  snapshot: AccountCacheSnapshot,
+  hint: PoolTradeHint,
+  ctx: CacheReadContext,
+  unixTimestamp: bigint,
+  payer: PublicKey,
+  amount: bigint,
+  slippageBps = 0,
+  maximumArrays = 8,
+) {
+  const result = calculateCachedDlmm(snapshot, hint, ctx, unixTimestamp, payer, amount, slippageBps, maximumArrays);
+  return {...result, instruction: result.instruction!, accounts: result.accounts!};
+}
+
+export function quoteCachedDlmm(
+  snapshot: AccountCacheSnapshot,
+  hint: PoolTradeHint,
+  ctx: CacheReadContext,
+  unixTimestamp: bigint,
+  payer: PublicKey,
+  amount: bigint,
+  slippageBps = 0,
+  maximumArrays = 8,
+) {
+  return calculateCachedDlmm(snapshot, hint, ctx, unixTimestamp, payer, amount, slippageBps, maximumArrays, true).quote;
 }

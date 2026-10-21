@@ -41,6 +41,7 @@ import {
   buildPumpFunSellInstructions,
   buildPumpFunClaimCashbackInstruction,
   type PumpFunParams as PumpFunBuilderParams,
+  PumpFunVersion,
 } from './instruction/pumpfun_builder';
 import {
   buildBuyInstructions as buildPumpSwapBuyInstructions,
@@ -623,6 +624,12 @@ export interface BondingCurveAccount {
  * PumpFun protocol parameters
  */
 export interface PumpFunParams {
+  version?: PumpFunVersion;
+  quoteTokenProgram?: PublicKey;
+  minimumOutputAmount?: bigint;
+  baseTransferFeeBps?: number;
+  quoteTransferFeeBps?: number;
+  buybackRecipient?: PublicKey;
   bondingCurve: BondingCurveAccount;
   associatedBondingCurve: PublicKey;
   creatorVault: PublicKey;
@@ -965,7 +972,11 @@ export type DexParamEnum =
 /**
  * Trading configuration
  */
+export {PumpFunVersion};
+
 export interface TradeConfig {
+  /** Default Pump.fun instruction version. Explicit request version wins. */
+  pumpfunVersion?: PumpFunVersion;
   rpcUrl: string;
   swqosConfigs: SwqosConfig[];
   commitment?: Commitment;
@@ -1008,6 +1019,7 @@ export interface TradeConfig {
  */
 export class TradeConfigBuilder {
   private _rpcUrl: string;
+  private _pumpfunVersion = PumpFunVersion.V3;
   private _swqosConfigs: SwqosConfig[] = [];
   private _commitment?: Commitment;
   private _logEnabled: boolean = true;
@@ -1027,6 +1039,11 @@ export class TradeConfigBuilder {
 
   static create(rpcUrl: string): TradeConfigBuilder {
     return new TradeConfigBuilder(rpcUrl);
+  }
+
+  pumpfunVersion(version: PumpFunVersion): this {
+    this._pumpfunVersion = version;
+    return this;
   }
 
   swqosConfigs(configs: SwqosConfig[]): this {
@@ -1102,6 +1119,7 @@ export class TradeConfigBuilder {
   build(): TradeConfig {
     return {
       rpcUrl: this._rpcUrl,
+      pumpfunVersion: this._pumpfunVersion,
       swqosConfigs: normalizeSwqosConfigs(this._rpcUrl, this._swqosConfigs),
       commitment: this._commitment,
       logEnabled: this._logEnabled,
@@ -1314,10 +1332,17 @@ export function simpleSellParamsToTradeSellParams(
   };
 }
 
-function mapPumpFunParams(p: PumpFunParams): PumpFunBuilderParams {
+function mapPumpFunParams(p: PumpFunParams, version = PumpFunVersion.V3): PumpFunBuilderParams {
   const bc = p.bondingCurve;
   return {
+    version: p.version ?? version,
+    quoteTokenProgram: p.quoteTokenProgram,
+    minimumOutputAmount: p.minimumOutputAmount,
+    baseTransferFeeBps: p.baseTransferFeeBps,
+    quoteTransferFeeBps: p.quoteTransferFeeBps,
+    buybackRecipient: p.buybackRecipient,
     bondingCurve: {
+      complete: bc.complete,
       account: bc.account,
       virtualTokenReserves: parserU64BigInt(bc.virtualTokenReserves, 'virtualTokenReserves'),
       virtualSolReserves: parserU64BigInt(bc.virtualSolReserves, 'virtualSolReserves'),
@@ -1743,8 +1768,8 @@ function resolveTipRecipientPubkey(
  */
 export class TradingClient {
   /** Prepare locally using current subscription state; no implicit RPC. */
-  prepareCachedTrade(request:NativeCachedTradeRequest) {return prepareNativeCachedTrade(request);}
-  async executeCachedTrade(request:NativeCachedTradeRequest,signers:readonly Signer[],submit:(wire:Uint8Array,tradeType:'Buy'|'Sell')=>Promise<string>){return new NativeCachedTradeExecutor(request.dexType).execute(request,signers,submit);}
+  prepareCachedTrade(request:NativeCachedTradeRequest) {return prepareNativeCachedTrade({...request,tradeConfig:request.tradeConfig ?? this._config});}
+  async executeCachedTrade(request:NativeCachedTradeRequest,signers:readonly Signer[],submit:(wire:Uint8Array,tradeType:'Buy'|'Sell')=>Promise<string>){return new NativeCachedTradeExecutor(request.dexType).execute({...request,tradeConfig:request.tradeConfig ?? this._config},signers,submit);}
 
   private payer: Keypair;
   private connection: Connection;
@@ -2117,7 +2142,7 @@ export class TradingClient {
 	          createOutputMintAta: params.createMintAta ?? true,
 	          createInputMintAta: params.createInputTokenAta ?? false,
 	          closeInputMintAta: params.closeInputTokenAta ?? false,
-	          protocolParams: mapPumpFunParams(ext.params),
+	          protocolParams: mapPumpFunParams(ext.params, this._config.pumpfunVersion ?? PumpFunVersion.V3),
 	          useExactSolAmount: params.useExactSolAmount ?? true,
 	          inputMint: this.getInputMint(params.inputTokenType),
 	        });
@@ -2322,7 +2347,7 @@ export class TradingClient {
               : undefined,
 	          closeInputMintAta: params.closeMintTokenAta ?? false,
 	          createOutputMintAta: params.createOutputTokenAta ?? false,
-	          protocolParams: mapPumpFunParams(ext.params),
+	          protocolParams: mapPumpFunParams(ext.params, this._config.pumpfunVersion ?? PumpFunVersion.V3),
 	          outputMint: this.getOutputMint(params.outputTokenType),
 	        });
       }
@@ -2991,6 +3016,7 @@ export function createTradeConfig(
     rpcUrl,
     swqosConfigs: normalizeSwqosConfigs(rpcUrl, swqosConfigs),
     ...rest,
+    pumpfunVersion: options?.pumpfunVersion ?? PumpFunVersion.V3,
     commitment: commitment ?? 'confirmed',
     logEnabled: logEnabled ?? true,
     checkMinTip: checkMinTip ?? false,
@@ -3084,3 +3110,4 @@ export {buildWhirlpoolSwapV2WithHooks} from './instruction/native_hops';
 export * from './trading/pumpswap_preparation';
 export * from './stock_catalog';
 export {CandidateRouteGraph} from './trading/route_candidates';
+export { PumpSwapRoutingConfig } from './trading/pumpswap_routing';

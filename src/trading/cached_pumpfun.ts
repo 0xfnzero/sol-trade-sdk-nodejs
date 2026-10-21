@@ -1,5 +1,6 @@
 /** Current PumpFun fee schedules and exact-in quotes from frozen accounts. No RPC. */
 import {PublicKey} from '@solana/web3.js';
+import {PumpFunVersion, buildPumpFunV3Instructions,buildPumpFunBuyInstructions,buildPumpFunSellInstructions} from '../instruction/pumpfun_builder';
 import {decodePumpFunBondingCurveData} from '../params';
 import {PUMPFUN_PROGRAM_ID,PUMPFUN_FEE_PROGRAM,PUMPFUN_FEE_CONFIG,PUMPFUN_GLOBAL_ACCOUNT,getBondingCurvePda} from '../instruction/pumpfun_builder';
 import {tokenTransferFeeForEpoch} from '../instruction/token_mint_state';
@@ -7,6 +8,7 @@ import type {AccountCacheSnapshot,CacheReadContext,PoolTradeHint} from './subscr
 import {buildPumpFunBuyV2Instructions,buildPumpFunSellV2Instructions,getPumpFunFeeSharingConfigPda,getCreatorVaultPda} from '../instruction/pumpfun_builder';
 import {decodePumpFunSharingCreatorVault} from './cached_pumpfun_config';
 import {getAssociatedTokenAddressSync,TOKEN_PROGRAM_ID,TOKEN_2022_PROGRAM_ID} from '../common/spl-token';
+const SOL=new PublicKey('So11111111111111111111111111111111111111111');
 const WSOL=new PublicKey('So11111111111111111111111111111111111111112');
 const USDC=new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
 const NATIVE2022=new PublicKey('9pan9bMn5HatX4EJdBwg9VgCa7Uz5HL8N1m5D3NdXejP');
@@ -89,7 +91,6 @@ export function prepareCachedPumpFunRouteLeg(snapshot:AccountCacheSnapshot,hint:
  const state=cachedPumpFun(snapshot,hint,context);
  if(state.quote.equals(WSOL)&&!allowNative)throw Error('PumpFun native quote requires cached trade settlement');
  const buy=hint.inputMint.equals(state.quote),quote=quoteCachedPumpFunExactIn(state,amount,buy,slippageBps);
- if(!state.quoteTokenProgram.equals(TOKEN_PROGRAM_ID))throw Error('PumpFun V2 quote token program is unsupported');
  if(state.mint.toBase58().endsWith('pump')&&!state.tokenProgram.equals(TOKEN_2022_PROGRAM_ID))throw Error('PumpFun mint suffix and token program mismatch');
  const raw=Buffer.from(snapshot.get(hint.pool,context,PUMPFUN_PROGRAM_ID).data);
  if(raw.length>=125&&raw[124]!==0){const holder=PublicKey.findProgramAddressSync([Buffer.from('holder-rewards'),state.mint.toBuffer()],PUMPFUN_PROGRAM_ID)[0];if(raw[124]!==1 || !holder.equals(state.curve.creator))throw Error('Invalid PumpFun holder-reward creator');}
@@ -99,6 +100,27 @@ export function prepareCachedPumpFunRouteLeg(snapshot:AccountCacheSnapshot,hint:
  const g=Buffer.from(snapshot.get(PUMPFUN_GLOBAL_ACCOUNT,context,PUMPFUN_PROGRAM_ID).data);
  const firstNonzero=(start:number,n:number)=>{for(let i=0;i<n;i++){const key=new PublicKey(g.subarray(start+32*i,start+32*(i+1)));if(!key.equals(PublicKey.default))return key}throw Error('Missing PumpFun current fee recipient')};
  const recipient=firstNonzero(state.curve.isMayhemMode?483:41,1),buyback=firstNonzero(741,8);
+ const version=hint.pumpfunVersion ?? PumpFunVersion.V3;
+ if(version===PumpFunVersion.V3){
+  const protocolParams={bondingCurve:state.curve,tokenProgram:state.tokenProgram,creatorVault,
+   quoteMint:state.quote,quoteTokenProgram:state.quoteTokenProgram,buybackRecipient:buyback,
+   minimumOutputAmount:quote.minimumNetAmountOut,baseTransferFeeBps:0,quoteTransferFeeBps:0};
+  // The route core handles wrapping/unwrapping; the native curve itself settles wallet SOL.
+  const settlement=state.quote.equals(WSOL)?SOL:state.quote;
+  const instructions=buildPumpFunV3Instructions({payer,inputMint:buy?settlement:state.mint,outputMint:buy?state.mint:settlement,
+   inputAmount:amount,protocolParams,createOutputMintAta:false,createInputMintAta:false},buy);
+  snapshot.assertUsable();return {state,quote,instruction:instructions[0]!};
+ }
+ if(version===PumpFunVersion.Legacy){
+  if(!state.quote.equals(WSOL))throw Error('PumpFun V1 requires native SOL');
+  const protocolParams={bondingCurve:state.curve,tokenProgram:state.tokenProgram,creatorVault,feeRecipient:recipient,version};
+  const swaps=buy?buildPumpFunBuyInstructions({payer,outputMint:state.mint,inputAmount:amount,protocolParams,createOutputMintAta:false,useExactSolAmount:true})
+   :buildPumpFunSellInstructions({payer,inputMint:state.mint,inputAmount:amount,protocolParams});
+  const instruction=swaps[0]!;instruction.data.writeBigUInt64LE(amount,8);instruction.data.writeBigUInt64LE(quote.minimumNetAmountOut,16);
+  snapshot.assertUsable();return {state,quote,instruction};
+ }
+ if(version!==PumpFunVersion.V2)throw Error('Unknown PumpFun version');
+ if(!state.quoteTokenProgram.equals(TOKEN_PROGRAM_ID))throw Error('PumpFun V2 quote token program is unsupported');
  const protocolParams={bondingCurve:state.curve,quoteMint:state.quote,tokenProgram:state.tokenProgram,creatorVault,feeSharingCreatorVaultIfActive:active,feeRecipient:recipient};
  const swaps=buy?buildPumpFunBuyV2Instructions({payer,inputMint:state.quote,outputMint:state.mint,inputAmount:amount,protocolParams,createOutputMintAta:false,createInputMintAta:false,useExactSolAmount:true}):buildPumpFunSellV2Instructions({payer,inputMint:state.mint,outputMint:state.quote,inputAmount:amount,protocolParams,createOutputMintAta:false,fixedOutputAmount:quote.minimumNetAmountOut});
  if(swaps.length!==1||swaps[0]!.keys.length!==(buy?27:26))throw Error('Unexpected PumpFun V2 layout');

@@ -1,3 +1,4 @@
+import * as cachedPumpSwap from '../src/trading/cached_pumpswap';
 import { it, expect, vi } from "vitest";
 import {
   Keypair,
@@ -139,7 +140,7 @@ it("search bounds include dead branches and reject conflicts before partial resu
   expect(() =>
     searchPumpSwapTrade(request, {
       ...f.search,
-      conversionPools: Array(33).fill(f.search.conversionPools[0]),
+      conversionPools: Array(129).fill(f.search.conversionPools[0]),
     }),
   ).toThrow(/bounds/);
 });
@@ -387,6 +388,12 @@ it("ranks protected output before hop count and uses deterministic pool bytes on
       : realGet(address, ctx, owner),
   );
   let bWins = true;
+  const realQuote = cachedPumpSwap.quoteCachedPumpSwap;
+  vi.spyOn(cachedPumpSwap, 'quoteCachedPumpSwap').mockImplementation((snapshot, hint, ctx, payer, amount, slippage) => {
+    if (!hint.pool.equals(poolA) && !hint.pool.equals(poolB)) return realQuote(snapshot, hint, ctx, payer, amount, slippage);
+    const out = amount * (hint.pool.equals(poolB) && bWins ? 2n : 1n) / 10n;
+    return {amountIn: amount, amountOut: out, minimumAmountOut: out};
+  });
   vi.spyOn(f.snapshot, "preparePumpSwap").mockImplementation(
     (hint, ctx, payer, amount, slippage) => {
       if (!hint.pool.equals(poolA) && !hint.pool.equals(poolB))
@@ -398,7 +405,7 @@ it("ranks protected output before hop count and uses deterministic pool bytes on
         amount,
         slippage,
       ).instruction;
-      const out = hint.pool.equals(poolB) && bWins ? 2000000n : 1000000n;
+      const out = amount * (hint.pool.equals(poolB) && bWins ? 2n : 1n) / 10n;
       return {
         state: f.snapshot.pumpSwap(
           new PoolTradeHint(anchor, quote, f.search.tokenMint),
@@ -442,6 +449,7 @@ it("ranks protected output before hop count and uses deterministic pool bytes on
   });
   expect(rejected.routesEvaluated).toBe(3);
   expect(rejected.rejectedRoutes).toHaveLength(1);
+  vi.restoreAllMocks();
 });
 
 it("explicit route preparation preserves direction and rejects a misplaced PumpSwap anchor", () => {

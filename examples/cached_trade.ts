@@ -1,11 +1,11 @@
 import {snapshotU64,snapshotI64} from './_snapshot';
 import { TradeExecutorFactory, DexType } from "../src/trading/factory";
-/** npx tsx examples/cached_trade.ts snapshots.json [--simulate].
+/** npx tsx examples/cached_trade.ts snapshots.json [--pumpfun-version v1|v2|v3] [--simulate].
  * Same JSON schema as Python. Quote/build are offline; nothing is sent.
  */
 import { readFileSync } from "node:fs";
 import { PublicKey } from "@solana/web3.js";
-import { SubscriptionAccountCache, PoolTradeHint } from "../src/index";
+import { SubscriptionAccountCache, PoolTradeHint, PumpFunVersion } from "../src/index";
 import {simulate,simulationOutput} from "./_simulation";
 async function main() {
   const evidencePath=simulationOutput(process.argv);
@@ -20,6 +20,12 @@ async function main() {
       slot: snapshotU64(a.slot,'account.slot'),
       writeVersion: snapshotU64(a.write_version,'account.write_version'),
     });
+  const versionIndex=process.argv.indexOf('--pumpfun-version');
+  if(versionIndex>=0){
+    const version=process.argv[versionIndex+1] as PumpFunVersion;
+    if(!Object.values(PumpFunVersion).includes(version))throw Error('--pumpfun-version requires v1, v2 or v3');
+    v.pumpfun_version=version;
+  }
   const snapshot = cache.snapshot(),
     ctx = {
       slot: snapshotU64(v.read_slot,'read_slot'),
@@ -27,20 +33,14 @@ async function main() {
       maximumSlotAge: snapshotU64(v.maximum_slot_age ?? 32,'maximum_slot_age'),
     },
     payer = new PublicKey(v.payer);
-  const hint = (h: any) => new PoolTradeHint(new PublicKey(h.pool),new PublicKey(h.input_mint),new PublicKey(h.output_mint));
+  const hint = (h: any) => new PoolTradeHint(new PublicKey(h.pool),new PublicKey(h.input_mint),new PublicKey(h.output_mint),h.pumpfun_version);
   const candidates=(v.candidates ?? []).map(hint);
-  const hints = (v.legs ?? []).map(
-    (h: any) =>
-      new PoolTradeHint(
-        new PublicKey(h.pool),
-        new PublicKey(h.input_mint),
-        new PublicKey(h.output_mint),
-      ),
-  );
+  const hints = (v.legs ?? []).map(hint);
   const prepared = TradeExecutorFactory.createCachedExecutor(
     v.dex_type as DexType,
   ).prepare({
     dexType: v.dex_type,
+    pumpfunVersion: v.pumpfun_version,
     tradeType: v.trade_type,
     snapshot,
     hints,

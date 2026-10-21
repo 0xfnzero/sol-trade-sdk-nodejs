@@ -14,7 +14,7 @@ import bs58 from "bs58";
 import {
   AccountCacheSnapshot,
   type CacheReadContext,
-  type PoolTradeHint,
+  PoolTradeHint,
 } from "./subscription_cache";
 import { settleCachedRouteWithNativeSol } from "./native_sol";
 import {
@@ -50,6 +50,8 @@ const programs: Record<CachedDexType, string> = {
   MeteoraDlmm: "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo",
 };
 export interface CachedTradeRequest {
+  pumpfunVersion?: import('../instruction/pumpfun_builder').PumpFunVersion;
+  tradeConfig?: Pick<import('../index').TradeConfig, 'pumpfunVersion'>;
   dexType: CachedDexType;
   tradeType: "Buy" | "Sell";
   snapshot: AccountCacheSnapshot;
@@ -84,6 +86,11 @@ export interface PreparedCachedTrade {
   requiredNativeLamports: bigint;
 }
 export function prepareCachedTrade(r: CachedTradeRequest): PreparedCachedTrade {
+  const version = r.pumpfunVersion ?? r.tradeConfig?.pumpfunVersion;
+  if (version !== undefined) {
+    const apply = (h: PoolTradeHint) => new PoolTradeHint(h.pool,h.inputMint,h.outputMint,h.pumpfunVersion ?? version);
+    r = {...r, hints:r.hints?.map(apply), candidates:r.candidates?.map(apply)};
+  }
   if (r.slippageBps !== undefined && (!Number.isInteger(r.slippageBps) || r.slippageBps < 0 || r.slippageBps >= 10000))
     throw Error("Invalid cached trade slippage: expected integer basis points in [0, 10000)");
   if (r.tradeType !== "Buy" && r.tradeType !== "Sell")

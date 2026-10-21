@@ -58,7 +58,8 @@ import {buyQuoteInputInternalWithFees,sellBaseInputInternalWithFees} from '../ca
 import {ASSOCIATED_TOKEN_PROGRAM_ID} from '../common/spl-token';
 import {getAssociatedTokenAddress,getCoinCreatorVaultAuthority,getPoolV2PDA,getUserVolumeAccumulatorPDA,PUMPSWAP_EVENT_AUTHORITY,PUMPSWAP_GLOBAL_VOLUME_ACCUMULATOR,PUMPSWAP_BUY_EXACT_QUOTE_IN_DISCRIMINATOR,PUMPSWAP_SELL_DISCRIMINATOR} from '../instruction/pumpswap';
 
-export function prepareCachedPumpSwap(snapshot:AccountCacheSnapshot,hint:PoolTradeHint,ctx:CacheReadContext,payer:PublicKey,amount:bigint,slippageBps=0) {
+function calculateCachedPumpSwap(snapshot:AccountCacheSnapshot,hint:PoolTradeHint,ctx:CacheReadContext,payer:PublicKey,amount:bigint,slippageBps=0, quoteOnly = false
+) {
  if(typeof amount!=='bigint'||amount<=0n||amount>=1n<<64n||!Number.isInteger(slippageBps)||slippageBps<0||slippageBps>=10000||payer.equals(PublicKey.default))throw new Error('Invalid PumpSwap preparation request');
  const state=cachedPumpSwap(snapshot,hint,ctx),p=state.pool;
  const quoteIn=hint.inputMint.equals(p.quoteMint);
@@ -69,6 +70,7 @@ export function prepareCachedPumpSwap(snapshot:AccountCacheSnapshot,hint:PoolTra
  const amountOut=quoteIn?buyQuoteInputInternalWithFees(amount,0n,state.baseReserve,state.quoteReserve,p.virtualQuoteReserves,fees).base:sellBaseInputInternalWithFees(amount,0n,state.baseReserve,state.quoteReserve,p.virtualQuoteReserves,fees).uiQuote;
  const minimumAmountOut=minimumPumpSwapOutput(amountOut,BigInt(slippageBps));
  if(!minimumAmountOut)throw new Error('PumpSwap quote has zero protected output');
+ if (quoteOnly) { snapshot.assertUsable(); return {state,quote:{amountIn:amount,amountOut,minimumAmountOut},instruction:undefined}; }
  const choose=(keys:PublicKey[],label:string)=>{const k=keys.find(k=>!k.equals(PublicKey.default));if(!k)throw new Error('Missing current PumpSwap '+label+' recipient');return k;};
  const feeRecipient=choose(p.isMayhemMode?state.reservedFeeRecipients:state.protocolFeeRecipients,'protocol');
  const buyback=choose(state.buybackFeeRecipients,'buyback');
@@ -84,4 +86,13 @@ export function prepareCachedPumpSwap(snapshot:AccountCacheSnapshot,hint:PoolTra
  const instruction=new TransactionInstruction({programId:PUMPSWAP_PROGRAM,keys:accounts,data});
  snapshot.assertUsable();
  return {state,quote:{amountIn:amount,amountOut,minimumAmountOut},instruction};
+}
+
+export function prepareCachedPumpSwap(snapshot:AccountCacheSnapshot,hint:PoolTradeHint,ctx:CacheReadContext,payer:PublicKey,amount:bigint,slippageBps=0) {
+  const result = calculateCachedPumpSwap(snapshot, hint, ctx, payer, amount, slippageBps);
+  return {...result, instruction: result.instruction!};
+}
+
+export function quoteCachedPumpSwap(snapshot:AccountCacheSnapshot,hint:PoolTradeHint,ctx:CacheReadContext,payer:PublicKey,amount:bigint,slippageBps=0) {
+  return calculateCachedPumpSwap(snapshot, hint, ctx, payer, amount, slippageBps, true).quote;
 }

@@ -2,7 +2,7 @@ import {describe,it,expect,vi} from 'vitest';
 import {readFileSync} from 'node:fs';
 import {PublicKey} from '@solana/web3.js';
 import {cachedPumpFun,quoteCachedPumpFunExactIn,decodePumpFunCurrentFees,prepareCachedPumpFun} from '../trading/cached_pumpfun';
-import {getPumpFunFeeSharingConfigPda} from '../instruction/pumpfun_builder';
+import {getPumpFunFeeSharingConfigPda,PumpFunVersion} from '../instruction/pumpfun_builder';
 import {TOKEN_2022_PROGRAM_ID} from '../common/spl-token';
 import {AccountCacheSnapshot,PoolTradeHint} from '../trading/subscription_cache';
 import {PUMPFUN_PROGRAM_ID,PUMPFUN_GLOBAL_ACCOUNT,PUMPFUN_FEE_PROGRAM,PUMPFUN_FEE_CONFIG,getBondingCurvePda} from '../instruction/pumpfun_builder';
@@ -26,7 +26,7 @@ function fixture(v:any){
  const m=Buffer.alloc(82);m[45]=1;m.writeBigUInt64LE(BigInt(v.supply),36);
  const qm=Buffer.alloc(82);qm[45]=1;
  const accounts=new Map([[pool.toBase58(),{owner:PUMPFUN_PROGRAM_ID,data:curve,slot:100n,writeVersion:0n}],[PUMPFUN_GLOBAL_ACCOUNT.toBase58(),{owner:PUMPFUN_PROGRAM_ID,data:g,slot:100n,writeVersion:0n}],[PUMPFUN_FEE_CONFIG.toBase58(),{owner:PUMPFUN_FEE_PROGRAM,data:config(),slot:100n,writeVersion:0n}],[mint.toBase58(),{owner:token,data:m,slot:100n,writeVersion:0n}],[quote.toBase58(),{owner:token,data:qm,slot:100n,writeVersion:0n}]]);
- const hint=new PoolTradeHint(pool,v.buy?quote:mint,v.buy?mint:quote);
+ const hint=new PoolTradeHint(pool,v.buy?quote:mint,v.buy?mint:quote,PumpFunVersion.V2);
  return {accounts,hint,curve,g};
 }
 describe('current PumpFun quote against independent official 2.0.0 oracle',()=>{

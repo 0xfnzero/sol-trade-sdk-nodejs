@@ -1,75 +1,74 @@
-当前版本：**0.2.0**。本轮同步 SDK、原生语言测试、示例及文档。升级说明见 [RELEASE_NOTES.md](RELEASE_NOTES.md)。
-
-[v0.2.0: SDK、原生 examples、股票目录与交易来源同步说明](docs/cross-language-sync.md)
-
 <div align="center">
-    <h1>🚀 Sol Trade SDK for Node.js</h1>
-    <h3><em>全面的 TypeScript SDK，用于无缝 Solana DEX 交易</em></h3>
+    <h1>Sol Trade SDK — Node.js</h1>
+    <p>面向 Solana DEX 的 Node.js 交易 SDK</p>
+    <a href="https://www.npmjs.com/package/sol-trade-sdk"><img src="https://img.shields.io/npm/v/sol-trade-sdk.svg" alt="sol-trade-sdk"></a>
+    <a href="#许可证"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
 </div>
 
 <p align="center">
-    <strong>一个面向低延迟 Solana DEX 交易机器人的高性能 TypeScript SDK。该 SDK 以速度和效率为核心设计，支持与 PumpFun、Pump AMM（PumpSwap）、Bonk、Meteora DAMM v2、Raydium AMM v4 以及 Raydium CPMM 进行无缝、高吞吐量的交互，适用于对延迟高度敏感的交易策略。</strong>
+    <a href="README.md">English</a> · <a href="README_CN.md">中文</a> ·
+    <a href="examples/README.md">示例</a> ·
+    <a href="docs/USAGE.md">文档</a> ·
+    <a href="RELEASE_NOTES.md">发布与迁移</a> ·
+    <a href="#sdk-版本与相关项目">相关 SDK</a>
 </p>
 
-<p align="center">
-    <a href="https://www.npmjs.com/package/sol-trade-sdk">
-        <img src="https://img.shields.io/npm/v/sol-trade-sdk.svg" alt="npm">
-    </a>
-    <a href="https://www.npmjs.com/package/sol-trade-sdk">
-        <img src="https://img.shields.io/node/v/sol-trade-sdk.svg" alt="Node Version">
-    </a>
-    <a href="LICENSE">
-        <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License">
-    </a>
-</p>
+提供交易构建、签名、多通道提交与缓存路由，支持 PumpFun、PumpSwap、Raydium 和 Meteora 等 DEX。各语言接口与支持边界见使用指南。
 
-<p align="center">
-    <img src="https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript">
-    <img src="https://img.shields.io/badge/Solana-9945FF?style=for-the-badge&logo=solana&logoColor=white" alt="Solana">
-    <img src="https://img.shields.io/badge/DEX-4B8BBE?style=for-the-badge&logo=bitcoin&logoColor=white" alt="DEX Trading">
-</p>
+当前版本：**9.0.0**。升级前请阅读 [迁移说明](RELEASE_NOTES.md)；历史变更见 [版本记录](CHANGELOG_CN.md)。
 
-<p align="center">
-    <a href="https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/README_CN.md">中文</a> |
-    <a href="https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/README.md">English</a> |
-    <a href="https://fnzero.dev/">官网</a> |
-    <a href="https://t.me/fnzero_group">Telegram</a> |
-    <a href="https://discord.gg/vuazbGkqQE">Discord</a>
-</p>
+## 目录
 
-## 📋 目录
+Pump.fun 全局默认 V3，可按单笔交易切换 V1/V2/V3；[版本配置、多跳示例和模拟限制](docs/PUMPFUN_VERSIONS.md)。
 
-- [✨ 项目特性](#-项目特性)
-- [📦 安装](#-安装)
-- [🛠️ 使用示例](#️-使用示例)
-  - [📋 使用示例](#-使用示例)
-  - [⚡ 交易参数](#-交易参数)
-  - [📊 使用示例汇总表格](#-使用示例汇总表格)
-  - [⚙️ SWQoS 服务配置说明](#️-swqos-服务配置说明)
-  - [🔧 中间件系统说明](#-中间件系统说明)
-  - [🔍 地址查找表](#-地址查找表)
-  - [🔍 Nonce 缓存](#-nonce-缓存)
-- [💰 Cashback 支持（PumpFun / PumpSwap）](#-cashback-支持pumpfun--pumpswap)
-- [🛡️ MEV 保护服务](#️-mev-保护服务)
-- [📁 项目结构](#-项目结构)
-- [📄 许可证](#-许可证)
-- [💬 联系方式](#-联系方式)
-- [⚠️ 重要注意事项](#️-重要注意事项)
+- [SDK 版本与相关项目](#sdk-版本与相关项目)
+- [安装](#安装)
+- [这个 SDK 适合什么场景](#这个-sdk-适合什么场景)
+- [项目特性](#项目特性)
+- [使用示例](#使用示例)
+- [文档导航](#文档导航)
+- [PumpSwap 缓存路由](#pumpswap-routes)
 
----
+<a id="sdk-版本与相关项目"></a>
 
 ## 📦 SDK 版本与相关项目
 
-交易 SDK 的各语言版本及相关 Rust SDK：
+各仓库版本独立，依赖兼容要求以对应 SDK 的安装说明为准。
 
-| 语言 | 仓库 | 描述 | 版本 |
-|------|------|------|
-| **Rust** | [sol-trade-sdk](https://github.com/0xfnzero/sol-trade-sdk) | 超低延迟，零拷贝优化 | `v8.0.0` |
-| **Node.js** | [sol-trade-sdk-nodejs](https://github.com/0xfnzero/sol-trade-sdk-nodejs) | TypeScript/JavaScript，Node.js 支持 | `v0.2.0` |
-| **Python** | [sol-trade-sdk-python](https://github.com/0xfnzero/sol-trade-sdk-python) | 原生 async/await 支持 | `v0.2.0` |
-| **Go** | [sol-trade-sdk-golang](https://github.com/0xfnzero/sol-trade-sdk-golang) | 并发安全，goroutine 支持 | `v0.2.0` |
-| **Rust** | [sol-parser-sdk](https://github.com/0xfnzero/sol-parser-sdk) | Solana DEX 交易与账户事件解析 | `v0.8.0` |
-| **Rust** | [sol-shred-sdk](https://github.com/0xfnzero/sol-shred-sdk) | Solana 原始 shred 解码与 ShredStream DEX 事件解析 | `v5.0.0` |
+| 语言 | 仓库 | 用途 | 版本 |
+|----------|------------|-------------|---------|
+| Rust | [sol-parser-sdk](https://github.com/0xfnzero/sol-parser-sdk) | DEX 交易与账户事件解析 | `v0.9.0` |
+| Node.js | [sol-parser-sdk-nodejs](https://github.com/0xfnzero/sol-parser-sdk-nodejs) | DEX 交易与账户事件解析 | `v0.9.0` |
+| Python | [sol-parser-sdk-python](https://github.com/0xfnzero/sol-parser-sdk-python) | DEX 交易与账户事件解析 | `v0.9.0` |
+| Go | [sol-parser-sdk-golang](https://github.com/0xfnzero/sol-parser-sdk-golang) | DEX 交易与账户事件解析 | `v0.9.0` |
+| Rust | [sol-trade-sdk](https://github.com/0xfnzero/sol-trade-sdk) | 交易构建、签名与多通道提交 | `v9.0.0` |
+| Node.js | [sol-trade-sdk-nodejs](https://github.com/0xfnzero/sol-trade-sdk-nodejs) | 交易构建、签名与多通道提交 | `v9.0.0` |
+| Python | [sol-trade-sdk-python](https://github.com/0xfnzero/sol-trade-sdk-python) | 交易构建、签名与多通道提交 | `v9.0.0` |
+| Go | [sol-trade-sdk-golang](https://github.com/0xfnzero/sol-trade-sdk-golang) | 交易构建、签名与多通道提交 | `v9.0.0` |
+| Rust | [sol-shred-sdk](https://github.com/0xfnzero/sol-shred-sdk) | 原始 Shred 解码与 ShredStream 指令事件 | `v6.0.0` |
+| Rust | [solana-streamer](https://github.com/0xfnzero/solana-streamer) | gRPC / ShredStream 订阅与事件流封装 | `v5.0.0` |
+| Rust | [sol-trade-router-sdk](https://github.com/0xfnzero/sol-trade-router-sdk) | 链上多跳 Router 与客户端 SDK | `v0.3.0` |
+
+<a id="安装"></a>
+
+## 安装
+
+```sh
+npm install sol-trade-sdk@9.0.0
+```
+
+运行仓库示例或参与开发时，再克隆源码：
+
+```sh
+git clone https://github.com/0xfnzero/sol-trade-sdk-nodejs
+cd sol-trade-sdk-nodejs
+npm install
+npm run build
+```
+
+示例配置、离线回放与在线交易的区别见 [示例索引](examples/README.md)。
+
+<a id="这个-sdk-适合什么场景"></a>
 
 ## 这个 SDK 适合什么场景
 
@@ -82,48 +81,14 @@
 | 交易流程 | `buySimple` / `sellSimple`、旧版 buy/sell 参数、跟单交易、狙击交易、地址查找表、durable nonce、中间件、共享基础设施 |
 | 运行环境 | Node.js 18+、TypeScript、npm/yarn/pnpm 项目 |
 
-## 🔖 当前版本
-
-**npm package:** `sol-trade-sdk@0.2.0`
-
-本版本包含 PumpSwap 多报价池、creator 账户校验、缓存路由与离线签名准备。交易执行使用调用方提供的区块哈希／nonce 和已验证的账户快照。
-
-## v0.1.10 — PumpSwap 多报价池与 creator 账户修复
-
-支持按实际 quote mint/token program 构建 PumpSwap 买卖，补齐 creator vault 校验，修复显式手续费收款方与 mayhem 模式行为，并移除不必要的全局成交量写锁。新增缓存报价、转换路线选择和完整离线签名准备，包含 TTWO 池及 SOL→USDC→TTWO→目标币的买卖回归。
-
-四语言共享真实 3007 失败样本，并逐字段核对业务指令。原生本地 bank 回归使用历史公共程序／账户与合成钱包状态。说明见 [PumpSwap 修复与验证](docs/PUMPSWAP_REPORTED_FAILURE.md)。
-
-## v0.1.9 — Pump depth-2 and SpeedLanding regional updates
-
-Adds Pump depth-2 create_v2 account chains, including curve and migrated-pool combinations. Preserves stored-depth chains when an ancestor is later whitelisted. Synchronizes SpeedLanding regional endpoints, including London and the New York domain, and compatible client routing. Account construction adds no RPC calls.
-
-Validation includes official Pump SDK 4.1.0 instruction comparisons, signed local LiteSVM simulations and SDK regressions. Local simulation state/config is synthetic; no funded transactions were broadcast and production latency was not measured.
-
-## v0.1.8 — Signed transaction and hot-path hardening
-
-Adds optional `minTipSol` decimal SOL thresholds and filters ineligible provider lanes before building, signing or sending. Hardens deadlines, blockhash/nonce lifecycle, cache selection and transfer-fee rounding. Uses native Ed25519 for V1 signing with signer validation and immutable message snapshots; adds signed wire and ALT regressions.
-
-Validation includes local CPU benchmarks and offline signed-bank scenarios. Measured hot paths use cached inputs without RPC. Benchmarks do not establish production network or transaction-landing latency. No funded mainnet transactions were broadcast.
-
-## v0.1.7 — CPMM creator-fee 对齐
-
-对齐 Rust 5.0.7 的 CPMM creator-fee API：creator 签名领取（15 账户）、permissionless 领取（16 账户）、必传 share PDA、236 字节 AmmConfig/145 字节 CreatorFeeShare 解码、同一银行快照的冷路径 RPC 比例读取、整数收益拆分，以及无 RPC 的缓存准备与版本/时效/连续性重验。共享主网模拟样本逐项比较账户、指令字节和收益，包含 Token-2022 与零比例 override。PoolState、swap/LP 行为不变。估算不含 Token-2022 转账税；链上比例在领取执行时读取。
-
-## v0.1.6
-
-新增缓存交易/路由准备、CLMM/Whirlpool/DLMM 整数报价、PumpFun 原生结算及多跳、StonkFun 路由、V1 序列化、token mint 校验和模拟示例，包含原生对齐证据及回归样本。此语言版本尚未包含 Rust 新增的 CPMM creator-fee 领取 API，不代表完整的 Rust 5.0.7 API 对齐。
-
-## Rust v5.0.2 对齐
-
-本 SDK 现在按 Rust SDK `v5.0.2` 对齐高层交易 intent API 和 SWQoS provider 覆盖。同步包含：`TradeRiskGate`（仅买入路径）、Meteora DAMM v2 的 `swap_mode` / rate-limiter sysvar / referral，以及 Bonk 滑点 clamp（9999 bps）。新代码可以使用高层 simple API，并通过 `AccountPolicy`、`BuyAmount`、`SellAmount` 描述意图；内部会转换到现有 buy/sell 参数，不移除旧 API。SWQoS 已包含 LunarLander、Glaive、Solami 等与 Rust 对齐的类型。配置显式 SWQoS 时仍会自动追加默认 RPC 通道。NextBlock 仍按 Rust parity 黑名单过滤。历史 extended provider 类仅为源码兼容保留，不属于 Rust `v5.0.2` 交易 provider 对齐范围。
+<a id="项目特性"></a>
 
 ## ✨ 项目特性
 
 1. **PumpFun 交易**: 统一 `buy`、`sell`、`buy_exact_quote_in` 流程，自动按 SOL 或 USDC quote 池选择旧版或 V2 链上指令
 2. **PumpSwap 交易**: 支持 PumpSwap 池的交易操作
 3. **Bonk 交易**: 支持 Bonk 的交易操作
-4. **Raydium CPMM 交易**: 支持 Raydium CPMM (Concentrated Pool Market Maker) 的交易操作
+4. **Raydium CPMM 交易**: 支持 Raydium CPMM (Constant Product Market Maker) 的交易操作
 5. **Raydium AMM V4 交易**: 支持 Raydium AMM V4 (Automated Market Maker) 的交易操作
 6. **Meteora DAMM V2 交易**: 支持 Meteora DAMM V2 (Dynamic AMM) 的交易操作
 7. **多种 MEV 保护**: 支持 Rust v5.0.2 SWQoS 集合，包括 Jito、ZeroSlot、Temporal、Bloxroute、FlashBlock、BlockRazor、Node1、Astralane、Stellium、Lightspeed、Soyas、Speedlanding、Helius、Solami、LunarLander、Glaive 和默认 RPC
@@ -133,48 +98,11 @@ Validation includes local CPU benchmarks and offline signed-bank scenarios. Meas
 11. **共享基础设施**: 多钱包可共享同一套 RPC 与 SWQoS 客户端，降低资源占用
 12. **热路径 RPC 边界**: 交易执行使用调用方传入的 blockhash 或 durable nonce，不在热路径查询 blockhash、账户或余额
 
-## 📦 安装
-
-### 直接克隆（推荐）
-
-将此项目克隆到您的项目目录：
-
-```bash
-cd your_project_root_directory
-git clone https://github.com/0xfnzero/sol-trade-sdk-nodejs
-```
-
-安装依赖并构建：
-
-```bash
-cd sol-trade-sdk-nodejs
-npm install
-npm run build
-```
-
-在您的 `package.json` 中添加：
-
-```json
-{
-  "dependencies": {
-    "sol-trade-sdk": "./sol-trade-sdk-nodejs"
-  }
-}
-```
-
-### 使用 NPM
-
-```bash
-npm install sol-trade-sdk@0.2.0
-# 或
-yarn add sol-trade-sdk@0.2.0
-# 或
-pnpm add sol-trade-sdk@0.2.0
-```
+<a id="使用示例"></a>
 
 ## 🛠️ 使用示例
 
-### 📋 使用示例
+### 📋 交易流程
 
 高层 intent API 可参考 [Simple Trading](examples/simple_trading.ts)，示例展示 `createSimpleBuyParams`、`BuyAmount.WithMaxInput`、`AccountPolicy.Auto` 以及到旧版 `TradeBuyParams` 的转换。
 
@@ -284,28 +212,9 @@ console.log(`交易签名: ${result.signature}`);
 使用 shred 订阅事件时，由于 shred 的特性，您无法获取交易事件的完整信息。
 在使用时，请确保您的交易逻辑所依赖的参数在 shred 中可用。
 
-### 📊 使用示例汇总表格
+### 示例索引
 
-| 描述 | 运行命令 | 源码 |
-|------|----------|------|
-| 创建并配置 TradingClient 实例 | `npx ts-node examples/trading_client.ts` | [examples/trading_client.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/trading_client.ts) | `v0.2.0` |
-| 多钱包共享基础设施 | `npx ts-node examples/shared_infrastructure.ts` | [examples/shared_infrastructure.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/shared_infrastructure.ts) | `v0.2.0` |
-| PumpFun 代币狙击交易 | `npx ts-node examples/pumpfun_sniper_trading.ts` | [examples/pumpfun_sniper_trading.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/pumpfun_sniper_trading.ts) | `v0.2.0` |
-| PumpFun 代币跟单交易 | `npx ts-node examples/pumpfun_copy_trading.ts` | [examples/pumpfun_copy_trading.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/pumpfun_copy_trading.ts) | `v0.2.0` |
-| PumpSwap 交易操作 | `npx ts-node examples/pumpswap_trading.ts` | [examples/pumpswap_trading.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/pumpswap_trading.ts) | `v0.2.0` |
-| PumpSwap 直接交易（通过 RPC） | `npx ts-node examples/pumpswap_direct_trading.ts` | [examples/pumpswap_direct_trading.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/pumpswap_direct_trading.ts) | `v0.2.0` |
-| Raydium CPMM 交易操作 | `npx ts-node examples/raydium_cpmm_trading.ts` | [examples/raydium_cpmm_trading.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/raydium_cpmm_trading.ts) | `v0.2.0` |
-| Raydium AMM V4 交易操作 | `npx ts-node examples/raydium_amm_v4_trading.ts` | [examples/raydium_amm_v4_trading.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/raydium_amm_v4_trading.ts) | `v0.2.0` |
-| Meteora DAMM V2 交易操作 | `npx ts-node examples/meteora_damm_v2_trading.ts` | [examples/meteora_damm_v2_trading.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/meteora_damm_v2_trading.ts) | `v0.2.0` |
-| Bonk 代币狙击交易 | `npx ts-node examples/bonk_sniper_trading.ts` | [examples/bonk_sniper_trading.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/bonk_sniper_trading.ts) | `v0.2.0` |
-| Bonk 代币跟单交易 | `npx ts-node examples/bonk_copy_trading.ts` | [examples/bonk_copy_trading.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/bonk_copy_trading.ts) | `v0.2.0` |
-| 自定义指令中间件示例 | `npx ts-node examples/middleware_system.ts` | [examples/middleware_system.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/middleware_system.ts) | `v0.2.0` |
-| 地址查找表示例 | `npx ts-node examples/address_lookup.ts` | [examples/address_lookup.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/address_lookup.ts) | `v0.2.0` |
-| Nonce 缓存（持久 Nonce）示例 | `npx ts-node examples/nonce_cache.ts` | [examples/nonce_cache.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/nonce_cache.ts) | `v0.2.0` |
-| SOL 与 WSOL 互转示例 | `npx ts-node examples/wsol_wrapper.ts` | [examples/wsol_wrapper.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/wsol_wrapper.ts) | `v0.2.0` |
-| Seed 交易示例 | `npx ts-node examples/seed_trading.ts` | [examples/seed_trading.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/seed_trading.ts) | `v0.2.0` |
-| Gas 费策略示例 | `npx ts-node examples/gas_fee_strategy.ts` | [examples/gas_fee_strategy.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/gas_fee_strategy.ts) | `v0.2.0` |
-| 热路径交易（零 RPC） | `npx ts-node examples/hot_path_trading.ts` | [examples/hot_path_trading.ts](https://github.com/0xfnzero/sol-trade-sdk-nodejs/blob/main/examples/hot_path_trading.ts) | `v0.2.0` |
+完整示例、运行命令与配置要求见 [示例索引](examples/README.md)。
 
 ### ⚙️ SWQoS 服务配置说明
 
@@ -385,6 +294,8 @@ import { fetchNonceInfo, NonceCache } from 'sol-trade-sdk';
 const nonceInfo = await fetchNonceInfo(rpc, nonceAccount);
 ```
 
+<a id="cashback-支持pumpfun-pumpswap"></a>
+
 ## 💰 Cashback 支持（PumpFun / PumpSwap）
 
 PumpFun 和 PumpSwap 为符合条件的代币支持 **cashback**：部分交易费用可以返还给用户。SDK **必须知道**代币是否启用了 cashback，以便买/卖指令包含正确的账户。
@@ -393,6 +304,8 @@ PumpFun 和 PumpSwap 为符合条件的代币支持 **cashback**：部分交易�
 - **当参数来自已解码事件时**: 如果您从已解码的交易事件构建参数（例如外部解析服务输出），您**必须**将 cashback 标志传递给 SDK：
   - **PumpFun**: 从解析的事件构建参数时设置 `isCashbackCoin`。
   - **PumpSwap**: 手动构建参数时设置 `isCashbackCoin` 字段。
+
+<a id="mev-保护服务"></a>
 
 ## 🛡️ MEV 保护服务
 
@@ -406,6 +319,8 @@ PumpFun 和 PumpSwap 为符合条件的代币支持 **cashback**：部分交易�
 - **BlockRazor**: 高速交易执行（API 密钥认证）
 - **Node1**: 高速交易执行（API 密钥认证）
 - **Astralane**: 区块链网络加速
+
+<a id="项目结构"></a>
 
 ## 📁 项目结构
 
@@ -427,16 +342,7 @@ src/
 └── index.ts          # 主库文件
 ```
 
-## 📄 许可证
-
-MIT License
-
-## 💬 联系方式
-
-- 官方网站: https://fnzero.dev/
-- 项目仓库: https://github.com/0xfnzero/sol-trade-sdk-nodejs
-- Telegram 群组: https://t.me/fnzero_group
-- Discord: https://discord.gg/vuazbGkqQE
+<a id="重要注意事项"></a>
 
 ## ⚠️ 重要注意事项
 
@@ -445,6 +351,18 @@ MIT License
 3. 注意滑点设置以避免交易失败
 4. 监控余额和交易费用
 5. 遵守相关法律法规
+
+<a id="pumpswap-routes"></a>
+
+## PumpSwap 自定义报价币与缓存路由
+
+直接交易按实际输入／输出 mint 选择方向，支持池内自定义报价币。SOL 与非 SOL 报价池之间的交易需要明确的兑换路径；缺失的 creator、vault、Token Program 等账户应先由已验证的池快照补齐。
+
+缓存路径分别计算买入与卖出，后续跳只使用前一跳的受保护输出，并校验报价时效和费用上下文。准备与离线签名不调用 RPC；缺少有效池状态或必要费用信息时拒绝构建。详见 [缓存接入指南](docs/USAGE.md#grpc-cache) 和 [历史失败修复与验证](docs/PUMPSWAP_REPORTED_FAILURE.md)。
+
+运行 [缓存准备示例](examples/pumpswap_cached_prepare.ts) 可回放保存的池状态。离线程序执行与性能测试见 [示例索引](examples/README.md)，历史样本不代表实时价格或生产网络延迟。
+
+<a id="api-兼容性"></a>
 
 ## API 兼容性
 
@@ -462,3 +380,31 @@ const provider: SwqosConfig = {
   minTipSol: 0.0001, // SOL; omit to preserve existing behavior
 };
 ```
+
+<a id="文档导航"></a>
+
+## 文档导航
+
+- [发布与迁移](RELEASE_NOTES.md)
+- [使用指南](docs/USAGE.md)
+- [示例索引](examples/README.md)
+- [跨语言功能与边界](docs/cross-language-sync.md)
+
+
+<a id="许可证"></a>
+
+## 📄 许可证
+
+MIT License
+
+<a id="联系方式"></a>
+
+## 💬 联系方式
+
+- 官方网站: https://fnzero.dev/
+- 项目仓库: https://github.com/0xfnzero/sol-trade-sdk-nodejs
+- Telegram 群组: https://t.me/fnzero_group
+- Discord: https://discord.gg/vuazbGkqQE
+
+
+股票池同步：34 种官方股票/ETF、63 个股票池；配置扩展、USDC 起点、缓存选路与使用边界见 [11 SDK 同步说明](docs/STOCK_BRIDGE_SYNC.md)。

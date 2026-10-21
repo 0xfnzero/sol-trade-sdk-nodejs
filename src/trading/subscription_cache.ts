@@ -61,6 +61,7 @@ export class PoolTradeHint {
     readonly pool: PublicKey,
     readonly inputMint: PublicKey,
     readonly outputMint: PublicKey,
+    readonly pumpfunVersion?: import('../instruction/pumpfun_builder').PumpFunVersion,
   ) {
     if (
       [pool, inputMint, outputMint].some((k) => k.equals(PublicKey.default)) ||

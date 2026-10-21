@@ -37,7 +37,7 @@ export interface CachedClmmQuote {
   epoch: bigint;
   sqrtPriceLimit: bigint;
 }
-export function prepareCachedClmm(
+function calculateCachedClmm(
   snapshot: AccountCacheSnapshot,
   hint: PoolTradeHint,
   ctx: CacheReadContext,
@@ -45,7 +45,7 @@ export function prepareCachedClmm(
   payer: PublicKey,
   amount: bigint,
   slippageBps = 0,
-  maximumArrays = 8,
+  maximumArrays = 8, quoteOnly = false
 ) {
   if (
     typeof amount !== "bigint" ||
@@ -212,6 +212,7 @@ export function prepareCachedClmm(
         epoch: ctx.epoch,
         sqrtPriceLimit: limit,
       };
+      if (quoteOnly) { return {quote,accounts:undefined,instruction:undefined}; }
       const accounts: RaydiumClmmSwapV2Accounts = {
         payer,
         amm_config: key(9),
@@ -253,4 +254,31 @@ export function prepareCachedClmm(
       throw Error("CLMM quote exceeds array budget");
   }
   throw Error("Insufficient CLMM liquidity in supplied snapshot");
+}
+
+export function prepareCachedClmm(
+  snapshot: AccountCacheSnapshot,
+  hint: PoolTradeHint,
+  ctx: CacheReadContext,
+  unixTimestamp: bigint,
+  payer: PublicKey,
+  amount: bigint,
+  slippageBps = 0,
+  maximumArrays = 8,
+) {
+  const result = calculateCachedClmm(snapshot, hint, ctx, unixTimestamp, payer, amount, slippageBps, maximumArrays);
+  return {...result, instruction: result.instruction!, accounts: result.accounts!};
+}
+
+export function quoteCachedClmm(
+  snapshot: AccountCacheSnapshot,
+  hint: PoolTradeHint,
+  ctx: CacheReadContext,
+  unixTimestamp: bigint,
+  payer: PublicKey,
+  amount: bigint,
+  slippageBps = 0,
+  maximumArrays = 8,
+) {
+  return calculateCachedClmm(snapshot, hint, ctx, unixTimestamp, payer, amount, slippageBps, maximumArrays, true).quote;
 }

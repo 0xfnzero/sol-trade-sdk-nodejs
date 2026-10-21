@@ -15,6 +15,25 @@ function validateSettlementInstructions(route:PreparedCachedRoute,payer:PublicKe
  if(route.minimumNetAmountOut!==route.legs.at(-1)!.minimumNetAmountOut)throw Error('PumpFun settlement protection differs from quoted leg');
 }
 function validateNativeAnchor(leg:PreparedCachedRoute['legs'][number],payer:PublicKey,buy:boolean):void{
+ const candidate=leg.instruction;
+ const legacy=Buffer.from(buy?[56,252,116,8,158,223,205,95]:[51,230,133,164,1,127,131,173]);
+ if(candidate.data.subarray(0,8).equals(legacy)){
+  const k=candidate.keys;
+  if(candidate.data.length!==(buy?25:24)||(buy&&candidate.data[24]!>1)||k.length<16
+   ||candidate.data.readBigUInt64LE(8)!==leg.amountIn||candidate.data.readBigUInt64LE(16)!==leg.minimumNetAmountOut
+   ||!k[6]!.pubkey.equals(payer)||!k[6]!.isSigner||!k[6]!.isWritable||!k[3]!.pubkey.equals(leg.hint.pool)
+   ||!k[2]!.pubkey.equals(buy?leg.hint.outputMint:leg.hint.inputMint))throw Error('PumpFun V1 settlement does not match quote');
+  return;
+ }
+ const v3=Buffer.from(buy?[225,247,80,30,213,179,132,136]:[28,146,222,119,38,196,105,213]);
+ if(candidate.data.subarray(0,8).equals(v3)){
+  const k=candidate.keys;
+  if(candidate.data.length!==(buy?25:24)||(buy&&candidate.data[24]!==0)||k.length!==17
+   ||candidate.data.readBigUInt64LE(8)!==leg.amountIn||candidate.data.readBigUInt64LE(16)!==leg.minimumNetAmountOut
+   ||!k[8]!.pubkey.equals(payer)||!k[8]!.isSigner||!k[8]!.isWritable||!k[5]!.pubkey.equals(leg.hint.pool)
+   ||!k[2]!.pubkey.equals(WSOL_MINT)||!k[1]!.pubkey.equals(buy?leg.hint.outputMint:leg.hint.inputMint))throw Error('PumpFun V3 settlement does not match quote');
+  return;
+ }
  const ix=leg.instruction,keys=ix.keys,discriminator=Buffer.from(buy?'c2ab1c46684d5b2f':'5df6823ce7e940b2','hex');
  if(ix.data.length!==24||!ix.data.subarray(0,8).equals(discriminator)||keys.length!==(buy?27:26)||ix.data.readBigUInt64LE(8)!==leg.amountIn||ix.data.readBigUInt64LE(16)!==leg.minimumNetAmountOut||!keys[13]!.pubkey.equals(payer)||!keys[13]!.isSigner||!keys[13]!.isWritable||!keys[10]!.pubkey.equals(leg.hint.pool)||!keys[2]!.pubkey.equals(WSOL_MINT)||!keys[1]!.pubkey.equals(buy?leg.hint.outputMint:leg.hint.inputMint))throw Error('PumpFun native settlement requires matching exact-in V2 quote and accounts');
 }

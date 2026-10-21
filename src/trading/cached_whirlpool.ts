@@ -90,7 +90,7 @@ export function decodeWhirlpoolTicks(
   }
   return ticks;
 }
-export function prepareCachedWhirlpool(
+function calculateCachedWhirlpool(
   snapshot: AccountCacheSnapshot,
   hint: PoolTradeHint,
   ctx: CacheReadContext,
@@ -98,7 +98,7 @@ export function prepareCachedWhirlpool(
   payer: PublicKey,
   amount: bigint,
   slippageBps = 0,
-  maximumArrays = 6,
+  maximumArrays = 6, quoteOnly = false
 ) {
   if (
     typeof amount !== "bigint" ||
@@ -223,6 +223,7 @@ export function prepareCachedWhirlpool(
       minimumFeeRate: result.minimumFeeRate,
       maximumFeeRate: result.maximumFeeRate,
     };
+    if (quoteOnly) { return {quote,accounts:undefined,instruction:undefined}; }
     while (arrays.length < 3) arrays.push(arrays[arrays.length - 1]!);
     const accounts: WhirlpoolSwapV2Accounts = {
       token_program_a: mints[0]!.owner,
@@ -260,4 +261,31 @@ export function prepareCachedWhirlpool(
     };
   }
   throw Error("Whirlpool quote exceeds loaded array budget");
+}
+
+export function prepareCachedWhirlpool(
+  snapshot: AccountCacheSnapshot,
+  hint: PoolTradeHint,
+  ctx: CacheReadContext,
+  unixTimestamp: bigint,
+  payer: PublicKey,
+  amount: bigint,
+  slippageBps = 0,
+  maximumArrays = 6,
+) {
+  const result = calculateCachedWhirlpool(snapshot, hint, ctx, unixTimestamp, payer, amount, slippageBps, maximumArrays);
+  return {...result, instruction: result.instruction!, accounts: result.accounts!};
+}
+
+export function quoteCachedWhirlpool(
+  snapshot: AccountCacheSnapshot,
+  hint: PoolTradeHint,
+  ctx: CacheReadContext,
+  unixTimestamp: bigint,
+  payer: PublicKey,
+  amount: bigint,
+  slippageBps = 0,
+  maximumArrays = 6,
+) {
+  return calculateCachedWhirlpool(snapshot, hint, ctx, unixTimestamp, payer, amount, slippageBps, maximumArrays, true).quote;
 }

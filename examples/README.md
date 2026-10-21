@@ -1,5 +1,7 @@
 # Sol Trade SDK Node.js Examples
 
+Pump.fun defaults to V3 with per-request V1/V2/V3 overrides. See [version configuration, multi-hop examples and simulation limits](../docs/PUMPFUN_VERSIONS.md).
+
 Examples are updated for the current TypeScript SDK API. Basic protocol demonstrations contain synthetic accounts and are intentionally dry-run only; setting `RUN_LIVE_EXAMPLES=1` makes them fail closed.
 
 ## Run

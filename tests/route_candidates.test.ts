@@ -2,8 +2,20 @@ import {it,expect} from "vitest";
 import {PublicKey} from "@solana/web3.js";
 import {candidateRoutes,iterateCandidateRoutes} from "../src/trading/route_candidates";
 import {PoolTradeHint} from "../src/trading/subscription_cache";
+import {PumpFunVersion} from "../src/instruction/pumpfun_builder";
+import {PumpSwapRoutingConfig} from "../src/trading/pumpswap_routing";
+import {buildPumpSwapTopology} from "../src/trading/pumpswap_preparation";
 const key=(n:number)=>new PublicKey(new Uint8Array(32).fill(n));
 const edge=(n:number,a:number,b:number)=>new PoolTradeHint(key(n),key(a),key(b));
+it("preserves per-hop versions through owned copies, reversed candidates and conversion topology",()=>{
+ const hint=new PoolTradeHint(key(10),key(1),key(2),PumpFunVersion.V2);
+ for(const [input,output] of [[key(1),key(2)],[key(2),key(1)]]) {
+  expect(candidateRoutes([hint],input,output)[0][0].pumpfunVersion).toBe(PumpFunVersion.V2);
+ }
+ const config=new PumpSwapRoutingConfig([hint]);
+ expect(config.conversionPools[0].pumpfunVersion).toBe(PumpFunVersion.V2);
+ expect(buildPumpSwapTopology(config.conversionPools).adjacency.get(key(2).toBase58())![0].pumpfunVersion).toBe(PumpFunVersion.V2);
+});
 it("orders shortest paths, reverses pools and avoids cycles",()=>{
  const pools=[edge(10,1,2),edge(11,2,3),edge(12,1,3)];
  const paths=candidateRoutes(pools,key(3),key(1));

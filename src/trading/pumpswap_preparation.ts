@@ -16,7 +16,7 @@ import {
   type AccountCacheSnapshot,
   type CacheReadContext,
 } from "./subscription_cache";
-import { prepareCachedRoute, type PreparedCachedRoute } from "./cached_route";
+import { prepareCachedRoute, type PreparedCachedRoute, type BridgeLimits } from "./cached_route";
 import { settleCachedRouteWithNativeSol } from "./native_sol";
 import {
   compileV1Message,
@@ -44,6 +44,7 @@ const copyHint = (h: PoolTradeHint) =>
     new PublicKey(h.pool.toBytes()),
     canonical(h.inputMint),
     canonical(h.outputMint),
+    h.pumpfunVersion,
   );
 function copyRoute(r: PreparedCachedRoute): PreparedCachedRoute {
   return {
@@ -306,6 +307,7 @@ export class PreparedPumpSwapTrade {
 export function preparePumpSwapTrade(
   request: PumpSwapPreparationRequest,
   hints: readonly PoolTradeHint[],
+  bridgeLimits?: BridgeLimits,
 ): PreparedPumpSwapTrade {
   if (request.tradeType !== "Buy" && request.tradeType !== "Sell")
     throw Error("Invalid independent trade direction");
@@ -328,6 +330,7 @@ export function preparePumpSwapTrade(
     request.amount,
     request.slippageBps ?? 100,
     request.maximumArrays ?? 8,
+    false, bridgeLimits,
   );
   request.snapshot.assertUsable();
   return new PreparedPumpSwapTrade(request, route);
@@ -339,6 +342,8 @@ export interface PumpSwapRouteSearch {
   conversionPools: readonly PoolTradeHint[];
   maximumConversionHops?: number;
   maximumSearchNodes?: number;
+  bridgeSlippageBps?: number;
+  maximumBridgePriceImpactBps?: number;
 }
 export interface PumpSwapRouteSearchResult {
   trade: PreparedPumpSwapTrade;
@@ -346,14 +351,21 @@ export interface PumpSwapRouteSearchResult {
   rejectedRoutes: readonly { pools: readonly PublicKey[]; reason: string }[];
 }
 /** Enumerate all bounded, noncyclic conversion paths, then rank their final protected output. */
-export function searchPumpSwapTrade(
+export function searchPumpSwapTrade(request: PumpSwapPreparationRequest, search: PumpSwapRouteSearch): PumpSwapRouteSearchResult {
+  return searchPumpSwapTradeWithTopology(request, search);
+}
+/** @internal Instance configuration supplies a validated identity graph. */
+export function searchPumpSwapTradeWithTopology(
   request: PumpSwapPreparationRequest,
   search: PumpSwapRouteSearch,
+  topology?: ReturnType<typeof buildPumpSwapTopology>,
 ): PumpSwapRouteSearchResult {
+  if ([search.bridgeSlippageBps ?? 100, search.maximumBridgePriceImpactBps ?? 100]
+    .some(v => !Number.isInteger(v) || v < 0 || v >= 10000)) throw Error("Invalid bridge limits");
   const maxHops = search.maximumConversionHops ?? 2,
-    budget = search.maximumSearchNodes ?? 128;
+    budget = search.maximumSearchNodes ?? 512;
   if (
-    search.conversionPools.length > 32 ||
+    search.conversionPools.length > 128 ||
     !Number.isInteger(maxHops) ||
     maxHops < 0 ||
     maxHops > 3 ||
@@ -388,28 +400,8 @@ export function searchPumpSwapTrade(
   for (const fee of [state.baseTransferFee, state.quoteTransferFee])
     if (fee.basisPoints !== 0 && fee.maximumFee !== 0n)
       throw Error("PumpSwap transfer-fee quote semantics are not yet verified");
-  const edges = new Map<string, PoolTradeHint>();
-  for (const original of search.conversionPools) {
-    const h = copyHint(original);
-    if (h.pool.equals(search.pool))
-      throw Error("Conversion route reuses anchor");
-    const id = h.pool.toBase58(),
-      old = edges.get(id);
-    if (old) {
-      if (
-        !(
-          (old.inputMint.equals(h.inputMint) &&
-            old.outputMint.equals(h.outputMint)) ||
-          (old.inputMint.equals(h.outputMint) &&
-            old.outputMint.equals(h.inputMint))
-        )
-      )
-        throw Error("Conflicting pool identities");
-    } else edges.set(id, h);
-  }
-  const sorted = [...edges.values()].sort((a, b) =>
-    Buffer.compare(a.pool.toBuffer(), b.pool.toBuffer()),
-  );
+  const graph = topology ?? buildPumpSwapTopology(search.conversionPools);
+  if (graph.edges.has(search.pool.toBase58())) throw Error("Conversion route reuses anchor");
   const paths: PoolTradeHint[][] = [];
   let nodes = 0;
   const from = request.tradeType === "Buy" ? asset : quote,
@@ -425,7 +417,7 @@ export function searchPumpSwapTrade(
       return;
     }
     if (path.length >= maxHops) return;
-    for (const h of sorted) {
+    for (const h of graph.adjacency.get(mint.toBase58()) ?? []) {
       let next: PublicKey;
       if (h.inputMint.equals(mint)) next = h.outputMint;
       else if (h.outputMint.equals(mint)) next = h.inputMint;
@@ -438,7 +430,7 @@ export function searchPumpSwapTrade(
         continue;
       visit(
         next,
-        [...path, new PoolTradeHint(h.pool, mint, next)],
+        [...path, new PoolTradeHint(h.pool, mint, next, h.pumpfunVersion)],
         new Set([...seen, next.toBase58()]),
       );
     }
@@ -463,7 +455,9 @@ export function searchPumpSwapTrade(
         ? [...conversion, anchor]
         : [anchor, ...conversion];
     try {
-      const trade = preparePumpSwapTrade(request, path),
+      const trade = preparePumpSwapTrade(request, path, { anchorPool: search.pool,
+        slippageBps: search.bridgeSlippageBps ?? 100,
+        maximumPriceImpactBps: search.maximumBridgePriceImpactBps ?? 100 }),
         out = trade.minimumNetAmountOut,
         previous = best?.minimumNetAmountOut;
       if (
@@ -486,4 +480,34 @@ export function searchPumpSwapTrade(
   }
   if (!best) throw Error("No executable PumpSwap conversion route");
   return { trade: best, routesEvaluated: paths.length, rejectedRoutes };
+}
+
+/** @internal Compiles identities only; never stores account state or quotes. */
+export function buildPumpSwapTopology(pools: readonly PoolTradeHint[]) {
+  const edges = new Map<string, PoolTradeHint>();
+  for (const original of pools) {
+    const h = copyHint(original);
+    const id = h.pool.toBase58(),
+      old = edges.get(id);
+    if (old) {
+      if (
+        !(
+          (old.inputMint.equals(h.inputMint) &&
+            old.outputMint.equals(h.outputMint)) ||
+          (old.inputMint.equals(h.outputMint) &&
+            old.outputMint.equals(h.inputMint))
+        )
+      )
+        throw Error("Conflicting pool identities");
+    } else edges.set(id, h);
+  }
+  const sorted = [...edges.values()].sort((a, b) =>
+    Buffer.compare(a.pool.toBuffer(), b.pool.toBuffer()),
+  );
+  const adjacency = new Map<string, PoolTradeHint[]>();
+  for (const h of sorted) for (const mint of [h.inputMint, h.outputMint]) {
+    const key = mint.toBase58();
+    const list = adjacency.get(key) ?? []; list.push(h); adjacency.set(key, list);
+  }
+  return { edges, adjacency };
 }
