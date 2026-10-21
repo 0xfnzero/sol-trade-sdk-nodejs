@@ -4,14 +4,14 @@ import { PumpSwapRoutingConfig, PoolTradeHint } from '../src';
 import { replayGlobalRouting } from '../examples/pumpswap_global_routing';
 it('merges defaults atomically and preserves alternatives', () => {
  const c=new PumpSwapRoutingConfig(), pools=c.conversionPools;
- expect(pools).toHaveLength(64);
+ expect(pools).toHaveLength(59);
  c.extendPools([...pools,...pools.map(h=>new PoolTradeHint(h.pool,h.outputMint,h.inputMint))]);
- expect(c.conversionPools).toHaveLength(64);
+ expect(c.conversionPools).toHaveLength(59);
  const h=pools[0]!;
  const extra=new PoolTradeHint(new PublicKey(new Uint8Array(32).fill(91)),h.inputMint,h.outputMint);
  expect(()=>c.extendPools([extra,new PoolTradeHint(h.pool,h.inputMint,extra.pool)])).toThrow(/Conflicting/);
- expect(c.conversionPools).toHaveLength(64);
- c.extendPools([extra]); expect(c.conversionPools).toHaveLength(65);
+ expect(c.conversionPools).toHaveLength(59);
+ c.extendPools([extra]); expect(c.conversionPools).toHaveLength(60);
  expect(new PumpSwapRoutingConfig([]).conversionPools).toHaveLength(0);
 });
 it('quotes buy and sell from partial cached state with all defaults', () => {
