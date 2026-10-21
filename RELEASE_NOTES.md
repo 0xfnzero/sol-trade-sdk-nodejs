@@ -12,6 +12,7 @@ This is a static catalog refresh, not continuous liquidity monitoring, certified
 
 ## Changes / 更新
 
+- Exclude source test files from the published npm package while retaining tests in the repository.
 - Default client Pump.fun trades to V3 with global configuration and explicit per-request V1/V2/V3 overrides. Keep the chosen version through cached preparation, factories and multi-hop bridge legs.
 - Support stock-quote Pump.fun routes and instance-owned PumpSwap routing configuration. Validate settlement endpoints, coherent snapshots, fees and minimum output for each hop.
 - Reject unsupported V1 direct token settlement rather than silently changing the requested currency. Unsupported V3 states fail explicitly.
