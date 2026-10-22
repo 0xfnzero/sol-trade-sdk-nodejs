@@ -95,7 +95,7 @@ See [the example index](examples/README.md) for configuration and offline versus
 | Area | Coverage |
 |------|----------|
 | DEX protocols | PumpFun, PumpSwap, Bonk, Meteora DAMM v2, Raydium AMM v4, Raydium CPMM |
-| Submit lanes | Default Solana RPC plus Jito, ZeroSlot, Temporal, Bloxroute, FlashBlock, BlockRazor, Node1, Astralane, Stellium, Lightspeed, Soyas, Speedlanding, Helius, and Solami; NextBlock remains Rust-blacklisted by default |
+| Submit lanes | Default Solana RPC plus Jito, ZeroSlot, Temporal, Bloxroute, FlashBlock, BlockRazor, Astralane, Stellium, Lightspeed, Soyas, Speedlanding, Helius, and Solami; NextBlock remains Rust-blacklisted by default |
 | Trading workflows | `buySimple` / `sellSimple`, legacy buy/sell params, copy trading, sniper trading, address lookup tables, durable nonce, middleware, shared infrastructure |
 | Runtime | Node.js 18+, TypeScript, npm/yarn/pnpm projects |
 
@@ -109,7 +109,7 @@ See [the example index](examples/README.md) for configuration and offline versus
 4. **Raydium CPMM Trading**: Support for Raydium CPMM (Constant Product Market Maker) trading operations
 5. **Raydium AMM V4 Trading**: Support for Raydium AMM V4 (Automated Market Maker) trading operations
 6. **Meteora DAMM V2 Trading**: Support for Meteora DAMM V2 (Dynamic AMM) trading operations
-7. **Multiple MEV Protection**: Support for the Rust v5.0.2 SWQoS set, including Jito, ZeroSlot, Temporal, Bloxroute, FlashBlock, BlockRazor, Node1, Astralane, Stellium, Lightspeed, Soyas, Speedlanding, Helius, Solami, LunarLander, Glaive, and Default RPC
+7. **Multiple MEV Protection**: Support for the Rust v5.0.2 SWQoS set, including Jito, ZeroSlot, Temporal, Bloxroute, FlashBlock, BlockRazor, Astralane, Stellium, Lightspeed, Soyas, Speedlanding, Helius, Solami, LunarLander, Glaive, and Default RPC
 8. **Concurrent Trading**: Submit through every configured SWQoS provider plus the default RPC lane; the first accepted result can return early while slower routes continue submitting
 9. **Unified Trading Interface**: Use unified trading protocol types for trading operations, including Rust-parity `buySimple` / `sellSimple` intent params
 10. **Middleware System**: Support for custom instruction middleware to modify, add, or remove instructions before transaction execution
@@ -337,7 +337,6 @@ You can apply for a key through the official website: [Community Website](https:
 - **Bloxroute**: Blockchain network acceleration
 - **FlashBlock**: High-speed transaction execution with API key authentication
 - **BlockRazor**: High-speed transaction execution with API key authentication
-- **Node1**: High-speed transaction execution with API key authentication
 - **Astralane**: Blockchain network acceleration
 
 <a id="project-structure"></a>

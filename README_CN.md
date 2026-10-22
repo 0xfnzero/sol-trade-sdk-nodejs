@@ -95,7 +95,7 @@ npm run build
 | 方向 | 覆盖范围 |
 |------|----------|
 | DEX 协议 | PumpFun、PumpSwap、Bonk、Meteora DAMM v2、Raydium AMM v4、Raydium CPMM |
-| 提交通道 | 默认 Solana RPC，以及 Jito、ZeroSlot、Temporal、Bloxroute、FlashBlock、BlockRazor、Node1、Astralane、Stellium、Lightspeed、Soyas、Speedlanding、Helius、Solami；NextBlock 默认仍按 Rust 黑名单跳过 |
+| 提交通道 | 默认 Solana RPC，以及 Jito、ZeroSlot、Temporal、Bloxroute、FlashBlock、BlockRazor、Astralane、Stellium、Lightspeed、Soyas、Speedlanding、Helius、Solami；NextBlock 默认仍按 Rust 黑名单跳过 |
 | 交易流程 | `buySimple` / `sellSimple`、旧版 buy/sell 参数、跟单交易、狙击交易、地址查找表、durable nonce、中间件、共享基础设施 |
 | 运行环境 | Node.js 18+、TypeScript、npm/yarn/pnpm 项目 |
 
@@ -109,7 +109,7 @@ npm run build
 4. **Raydium CPMM 交易**: 支持 Raydium CPMM (Constant Product Market Maker) 的交易操作
 5. **Raydium AMM V4 交易**: 支持 Raydium AMM V4 (Automated Market Maker) 的交易操作
 6. **Meteora DAMM V2 交易**: 支持 Meteora DAMM V2 (Dynamic AMM) 的交易操作
-7. **多种 MEV 保护**: 支持 Rust v5.0.2 SWQoS 集合，包括 Jito、ZeroSlot、Temporal、Bloxroute、FlashBlock、BlockRazor、Node1、Astralane、Stellium、Lightspeed、Soyas、Speedlanding、Helius、Solami、LunarLander、Glaive 和默认 RPC
+7. **多种 MEV 保护**: 支持 Rust v5.0.2 SWQoS 集合，包括 Jito、ZeroSlot、Temporal、Bloxroute、FlashBlock、BlockRazor、Astralane、Stellium、Lightspeed、Soyas、Speedlanding、Helius、Solami、LunarLander、Glaive 和默认 RPC
 8. **并发交易**: 所有已配置的 SWQoS 通道和默认 RPC 通道都会发出提交；首个成功只影响返回，较慢通道会继续提交
 9. **统一交易接口**: 使用统一的交易协议类型进行交易操作，并支持 Rust 对齐的 `buySimple` / `sellSimple` intent 参数
 10. **中间件系统**: 支持自定义指令中间件，可在交易执行前对指令进行修改、添加或移除
@@ -335,7 +335,6 @@ PumpFun 和 PumpSwap 为符合条件的代币支持 **cashback**：部分交易�
 - **Bloxroute**: 区块链网络加速
 - **FlashBlock**: 高速交易执行（API 密钥认证）
 - **BlockRazor**: 高速交易执行（API 密钥认证）
-- **Node1**: 高速交易执行（API 密钥认证）
 - **Astralane**: 区块链网络加速
 
 <a id="项目结构"></a>
