@@ -28,6 +28,8 @@ import {
   getAssociatedTokenAddress as getPumpSwapAssociatedTokenAddress,
   getPoolV2PDA,
   decodePool,
+  decodePoolAccount,
+  decodePoolPayload,
   LEGACY_POOL_SIZE,
   POOL_SIZE,
   PUMPSWAP_POOL_DISCRIMINATOR,
@@ -210,6 +212,16 @@ describe('protocol instruction parity', () => {
     expect(decodePool(poolBytes({ ...pool, virtualQuoteReserves: -123_456n }))?.virtualQuoteReserves)
       .toBe(-123_456n);
     expect(decodePool(poolBytes(pool))?.virtualQuoteReserves).toBe(0n);
+    const extended = Buffer.concat([poolBytes({...pool, virtualQuoteReserves: 123n}), Buffer.alloc(301 - poolBytes({...pool, virtualQuoteReserves: 123n}).length)]);
+    extended.writeBigUInt64LE(200n,8+253);extended[8+261]=1;extended[8+262]=1;
+    expect(decodePoolAccount(extended)).toMatchObject({creatorFeeBps:200n,canEditCreatorFee:true,isHolderReward:true});
+    expect(decodePoolAccount(extended)?.baseMint).toEqual(pool.baseMint);
+    expect(decodePool(extended)?.quoteMint).toEqual(pool.quoteMint);
+    for (const size of [254,255,256,257,258,259,260,261]) expect(decodePoolPayload(Buffer.alloc(size))).toBeNull();
+    const invalidFlag=Buffer.from(extended);invalidFlag[8+261]=2;
+    expect(decodePoolAccount(invalidFlag)).toBeNull();
+    extended[0] ^= 1;
+    expect(decodePoolAccount(extended)).toBeNull();
     const wrongDiscriminator = poolBytes({ ...pool, virtualQuoteReserves: 0n });
     wrongDiscriminator.fill(0, 0, 8);
     expect(decodePool(wrongDiscriminator)).toBeNull();

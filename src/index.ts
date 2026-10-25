@@ -973,6 +973,7 @@ export type DexParamEnum =
  * Trading configuration
  */
 export {PumpFunVersion};
+export {PumpRouteExecution, selectPumpRoute, type PumpRouteOptions} from './instruction/pump_route';
 
 export interface TradeConfig {
   /** Default Pump.fun instruction version. Explicit request version wins. */

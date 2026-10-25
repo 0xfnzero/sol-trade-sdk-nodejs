@@ -1,4 +1,6 @@
 import {prepareExplicitDammV2Route} from "./cached_damm_v2";
+import {prepareOfficialPumpRoute} from './pump_route';
+import {PumpRouteExecution} from '../instruction/pump_route';
 import {cachedPumpFun} from './cached_pumpfun';
 import {settlePumpFunNativeQuote} from './pumpfun_settlement';
 import {CacheNotReadyError} from "./subscription_readiness";
@@ -50,6 +52,7 @@ const programs: Record<CachedDexType, string> = {
   MeteoraDlmm: "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo",
 };
 export interface CachedTradeRequest {
+  pumpRoute?: import('../instruction/pump_route').PumpRouteOptions;
   pumpfunVersion?: import('../instruction/pumpfun_builder').PumpFunVersion;
   tradeConfig?: Pick<import('../index').TradeConfig, 'pumpfunVersion'>;
   dexType: CachedDexType;
@@ -126,7 +129,11 @@ export function prepareCachedTrade(r: CachedTradeRequest): PreparedCachedTrade {
     if(!state.mint.equals(r.tradeType==='Buy'?anchor.outputMint:anchor.inputMint))throw Error('PumpFun anchor direction does not match independent trade type');
   }
   if(r.dexType !== "MeteoraDammV2" && r.fixedOutputAmount !== undefined) throw Error("fixedOutputAmount is only supported by explicit DAMM v2 preparation");
-  let route = r.dexType === "MeteoraDammV2" ? prepareExplicitDammV2Route(r.snapshot,r.hints,r.context,r.unixTimestamp,r.payer,r.amount,r.fixedOutputAmount,r.tradeType) : r.snapshot.prepareRoute(
+  const official = r.dexType === 'PumpFun' || r.dexType === 'PumpSwap'
+    ? prepareOfficialPumpRoute(r.snapshot,r.hints,r.context,r.payer,r.amount,r.pumpRoute,r.nativeInput || r.nativeOutput) : undefined;
+  if (!official && r.pumpRoute?.execution === PumpRouteExecution.Official) throw Error('Requested route does not support official Pump execution');
+  if (official) nativePumpFun = false;
+  let route = official ?? (r.dexType === "MeteoraDammV2" ? prepareExplicitDammV2Route(r.snapshot,r.hints,r.context,r.unixTimestamp,r.payer,r.amount,r.fixedOutputAmount,r.tradeType) : r.snapshot.prepareRoute(
     r.hints,
     r.context,
     r.unixTimestamp,
@@ -135,7 +142,9 @@ export function prepareCachedTrade(r: CachedTradeRequest): PreparedCachedTrade {
     r.slippageBps ?? 100,
     r.maximumArrays ?? 8,
     nativePumpFun,
-  );
+  ));
+  if (r.pumpRoute?.execution !== PumpRouteExecution.Sequential && r.pumpRoute?.minimumOutputAmount !== undefined && route.minimumNetAmountOut < r.pumpRoute.minimumOutputAmount)
+    throw Error('Sequential route cannot guarantee the requested final output; refresh its quotes');
   const input = r.nativeInput ?? false,
     output = r.nativeOutput ?? false;
   if (typeof input !== "boolean" || typeof output !== "boolean")

@@ -962,21 +962,22 @@ export interface PumpSwapFeeConfig {
  * Uses Borsh deserialization
  */
 export function decodePool(data: Buffer): PumpSwapPool | null {
-  const isFullAccount = [LEGACY_POOL_SIZE + 8, POOL_SIZE + 8, 300, 643].includes(data.length);
-  if (isFullAccount) {
-    if (!data.subarray(0, 8).equals(PUMPSWAP_POOL_DISCRIMINATOR)) {
-      return null;
-    }
-    data = data.subarray(8);
-  }
-  return decodePoolPayload(data);
+  const isFullAccount = [LEGACY_POOL_SIZE + 8, POOL_SIZE + 8, 300, 643].includes(data.length)
+    || data.subarray(0, 8).equals(PUMPSWAP_POOL_DISCRIMINATOR);
+  return isFullAccount ? decodePoolAccount(data) : decodePoolPayload(data);
+}
+
+/** Strict full account decoder, including forward-compatible appended fields. */
+export function decodePoolAccount(data: Buffer): PumpSwapPool | null {
+  if (!data.subarray(0,8).equals(PUMPSWAP_POOL_DISCRIMINATOR)) return null;
+  return decodePoolPayload(data.subarray(8));
 }
 
 /** Explicit payload decoder avoids guessing reserved payload bytes as an account header. */
 export function decodePoolPayload(data: Buffer): PumpSwapPool | null {
-  if (data.length < POOL_SIZE && data.length !== LEGACY_POOL_SIZE) {
-    return null;
-  }
+  if (data.length < 263 && ![LEGACY_POOL_SIZE, POOL_SIZE, 262].includes(data.length)) return null;
+  if (data[235]! > 1 || data[236]! > 1 || (data.length >= 262 && data[261]! > 1)
+      || (data.length >= 263 && data[262]! > 1)) return null;
 
   try {
     let offset = 0;
@@ -1077,7 +1078,7 @@ export async function findPoolByMint(
   const poolV2 = getPoolV2PDA(mint);
   const poolV2Account = await connection.getAccountInfo(poolV2);
   if (poolV2Account?.value?.data) {
-    const pool = decodePool(poolV2Account.value.data);
+    const pool = decodePoolAccount(poolV2Account.value.data);
     if (pool && pool.baseMint.equals(mint)) {
       return { poolAddress: poolV2, pool };
     }
@@ -1087,7 +1088,7 @@ export async function findPoolByMint(
   const canonicalAddress = getCanonicalPoolPDA(mint);
   const canonicalAccount = await connection.getAccountInfo(canonicalAddress);
   if (canonicalAccount?.value?.data) {
-    const pool = decodePool(canonicalAccount.value.data);
+    const pool = decodePoolAccount(canonicalAccount.value.data);
     if (pool && pool.baseMint.equals(mint)) {
       return { poolAddress: canonicalAddress, pool };
     }
@@ -1247,7 +1248,7 @@ export async function fetchPool(
   if (!account?.value?.data) {
     return null;
   }
-  const pool = decodePool(account.value.data);
+  const pool = decodePoolAccount(account.value.data);
   return pool;
 }
 
@@ -1293,7 +1294,7 @@ export async function findByMint(
   const poolV2 = getPoolV2PDA(mint);
   const poolV2Account = await connection.getAccountInfo(poolV2);
   if (poolV2Account?.value?.data) {
-    const pool = decodePool(poolV2Account.value.data);
+    const pool = decodePoolAccount(poolV2Account.value.data);
     if (pool && pool.baseMint.equals(mint)) {
       return { poolAddress: poolV2, pool };
     }
@@ -1303,7 +1304,7 @@ export async function findByMint(
   const canonicalAddress = getCanonicalPoolPDA(mint);
   const canonicalAccount = await connection.getAccountInfo(canonicalAddress);
   if (canonicalAccount?.value?.data) {
-    const pool = decodePool(canonicalAccount.value.data);
+    const pool = decodePoolAccount(canonicalAccount.value.data);
     if (pool && pool.baseMint.equals(mint)) {
       return { poolAddress: canonicalAddress, pool };
     }
@@ -1353,7 +1354,7 @@ export async function findByBaseMint(
     // Decode and sort by lp_supply (highest first)
     const pools: { poolAddress: PublicKey; pool: PumpSwapPool }[] = [];
     for (const { pubkey, account } of results) {
-      const pool = decodePool(account.data);
+      const pool = decodePoolAccount(account.data);
       if (pool) {
         pools.push({ poolAddress: pubkey, pool });
       }
@@ -1409,7 +1410,7 @@ export async function findByQuoteMint(
     // Decode and sort by lp_supply (highest first)
     const pools: { poolAddress: PublicKey; pool: PumpSwapPool }[] = [];
     for (const { pubkey, account } of results) {
-      const pool = decodePool(account.data);
+      const pool = decodePoolAccount(account.data);
       if (pool) {
         pools.push({ poolAddress: pubkey, pool });
       }

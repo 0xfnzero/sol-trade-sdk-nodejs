@@ -7,17 +7,45 @@ import {TradeExecutorFactory,DexType} from '../trading/factory';
 import {prepareCachedTrade,type CachedTradeRequest} from '../trading/cached_trade';
 import {settlePumpFunNativeQuote} from '../trading/pumpfun_settlement';
 import {PumpFunVersion} from '../instruction/pumpfun_builder';
-import {TradeConfigBuilder} from '../index';
+import {TradeConfigBuilder, PumpRouteExecution} from '../index';
 const load=(name:string)=>JSON.parse(readFileSync(new URL('../../examples/fixtures/'+name,import.meta.url),'utf8'));
 function request(v:any):CachedTradeRequest {
  return {pumpfunVersion:v.pumpfun_version,dexType:'PumpFun',tradeType:v.trade_type,snapshot:new AccountCacheSnapshot(new Map(v.accounts.map((a:any)=>[a.pubkey,{owner:new PublicKey(a.owner),data:Buffer.from(a.data,'base64'),slot:BigInt(a.slot),writeVersion:BigInt(a.write_version)}]))),hints:v.legs.map((h:any)=>new PoolTradeHint(new PublicKey(h.pool),new PublicKey(h.input_mint),new PublicKey(h.output_mint))),context:{slot:BigInt(v.read_slot),epoch:BigInt(v.epoch),maximumSlotAge:BigInt(v.maximum_slot_age)},payer:new PublicKey(v.payer),amount:BigInt(v.amount),unixTimestamp:BigInt(v.unix_timestamp),recentBlockhash:v.recent_blockhash,slippageBps:v.slippage_bps,nativeInput:v.native_input,nativeOutput:v.native_output,temporaryWsolSeed:v.temporary_wsol_seed,rentLamports:BigInt(v.rent_lamports)};
 }
 describe('gRPC discovered current PumpFun factory',()=>{
+ it.each(['Buy','Sell'] as const)('selects an official aggregate %s from frozen Pump curves without RPC', direction => {
+  // Synthetic chain assembled from existing account captures; not a mainnet quote.
+  const v=load('pumpfun_usdc_buy_20261004.json'), extra=load('pumpfun_current_0_sol_buy_20261004.json');
+  const currency=v.legs[0].input_mint, middle=extra.legs[0].output_mint, target=v.legs[1].output_mint;
+  const curve=(a:any,quote:string)=>{const d=Buffer.from(a.data,'base64');new PublicKey(quote).toBuffer().copy(d,83);return {...a,data:d.toString('base64'),slot:v.read_slot}};
+  v.accounts=v.accounts.map((a:any)=>a.pubkey===v.legs[1].pool?curve(a,middle):a);
+  v.accounts.push(...extra.accounts.filter((a:any)=>a.pubkey===middle||a.pubkey===extra.legs[0].pool).map((a:any)=>a.pubkey===middle?{...a,slot:v.read_slot}:curve(a,currency)));
+  v.legs=[{pool:extra.legs[0].pool,input_mint:currency,output_mint:middle},{pool:v.legs[1].pool,input_mint:middle,output_mint:target}];
+  if(direction==='Sell')v.legs=v.legs.reverse().map((h:any)=>({...h,input_mint:h.output_mint,output_mint:h.input_mint}));
+  v.trade_type=direction;
+  const r=request(v),network=vi.spyOn(globalThis,'fetch').mockImplementation(()=>{throw Error('network forbidden')});
+  try {
+   const options={minimumOutputAmount:7n,buybackRecipient:r.payer};
+   const p=prepareCachedTrade({...r,pumpRoute:options}),strict=prepareCachedTrade({...r,pumpRoute:{...options,execution:PumpRouteExecution.Official}});
+   expect(p.compiled.message).toEqual(strict.compiled.message);
+   expect(p.route.execution).toBe(PumpRouteExecution.Official);
+   expect(p.route.legs).toHaveLength(0);expect(p.route.swapInstructions).toHaveLength(1);
+   expect(p.route.setupInstructions).toHaveLength(3);expect(p.route.minimumNetAmountOut).toBe(7n);
+   expect(p.route.swapInstructions[0]!.data.readBigUInt64LE(8)).toBe(r.amount);
+   expect(p.route.swapInstructions[0]!.data.readBigUInt64LE(16)).toBe(7n);
+   expect(p.route.swapInstructions[0]!.keys).toHaveLength(26);
+   expect(network).not.toHaveBeenCalled();
+  } finally {network.mockRestore();}
+ });
  it.each(['Buy','Sell'] as const)('V1/V2/V3 %s keeps protected hop amounts and explicit version precedence',direction=>{
   const base=request(load(`pumpfun_whirlpool_usdc_${direction.toLowerCase()}_20261005.json`));
   const network=vi.spyOn(globalThis,'fetch').mockImplementation(()=>{throw Error('network forbidden')});
   try {
    expect(TradeConfigBuilder.create('http://localhost').build().pumpfunVersion).toBe(PumpFunVersion.V3);
+   const before=prepareCachedTrade(base),options={minimumOutputAmount:1n,buybackRecipient:base.payer};
+   expect(prepareCachedTrade({...base,pumpRoute:options}).compiled.message).toEqual(before.compiled.message);
+   expect(()=>prepareCachedTrade({...base,pumpRoute:{...options,execution:'official' as any}})).toThrow();
+   expect(()=>prepareCachedTrade({...base,pumpRoute:{...options,minimumOutputAmount:(1n<<64n)-1n}})).toThrow(/final output/);
    const outputs=[];
    for(const version of Object.values(PumpFunVersion)){
     const prepared=prepareCachedTrade({...base,pumpfunVersion:version,tradeConfig:{pumpfunVersion:PumpFunVersion.V2}});

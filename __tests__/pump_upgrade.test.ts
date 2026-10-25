@@ -1,3 +1,4 @@
+import {PumpRouteExecution as E, selectPumpRoute} from '../src/instruction/pump_route';
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { PublicKey } from "@solana/web3.js";
@@ -153,6 +154,18 @@ it("validates nested curve route, cashback endpoint and continuity", () => {
     };
   };
   const hops = [hop(a, wsol), hop(b, a)];
+  const options={minimumOutputAmount:9n,buybackRecipient:user};
+  const ix=selectPumpRoute(options,user,wsol,b,7n,hops)!;
+  expect([...ix.data.subarray(0,8)]).toEqual([43,100,73,19,233,246,111,148]);
+  expect(ix.data.readBigUInt64LE(8)).toBe(7n);expect(ix.data.readBigUInt64LE(16)).toBe(9n);
+  expect(ix.keys).toHaveLength(26);
+  expect(selectPumpRoute({},user,wsol,b,7n,hops)).toBeUndefined();
+  expect(selectPumpRoute({...options,execution:E.Sequential},user,wsol,b,7n,hops)).toBeUndefined();
+  expect(selectPumpRoute(options,user,wsol,b,7n)).toBeUndefined();
+  expect(()=>selectPumpRoute({...options,execution:E.Official},user,wsol,b,7n)).toThrow();
+  expect(()=>selectPumpRoute({...options,minimumOutputAmount:0n},user,wsol,b,7n,hops)).toThrow();
+  expect(selectPumpRoute(options,user,b,wsol,7n,[...hops].reverse())).toBeDefined();
+
   expect(derivePumpCoinQuoteCreateAccounts(b, hops[0]!, 0, 1, [])).toHaveLength(
     5,
   );

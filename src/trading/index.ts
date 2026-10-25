@@ -53,3 +53,5 @@ export * from "./cached_pumpfun";
 
 export * from './pumpswap_preparation';
 export { PumpSwapRoutingConfig } from './pumpswap_routing';
+
+export {PumpRouteExecution, selectPumpRoute, type PumpRouteOptions} from '../instruction/pump_route';

@@ -39,6 +39,8 @@ export interface CachedRouteLeg {
   instruction: TransactionInstruction;
 }
 export interface PreparedCachedRoute {
+  /** Official routes expose an aggregate limit; legs are empty because per-hop fills are unknown. */
+  execution?: import('../instruction/pump_route').PumpRouteExecution;
   legs: readonly CachedRouteLeg[];
   setupInstructions: readonly TransactionInstruction[];
   swapInstructions: readonly TransactionInstruction[];

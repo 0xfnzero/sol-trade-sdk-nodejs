@@ -4,6 +4,11 @@ Pump.fun defaults to V3 with per-request V1/V2/V3 overrides. See [version config
 
 Examples are updated for the current TypeScript SDK API. Basic protocol demonstrations contain synthetic accounts and are intentionally dry-run only; setting `RUN_LIVE_EXAMPLES=1` makes them fail closed.
 
+
+Official Pump.fun/PumpSwap multi-hop buy and sell: [`pump_multi_hop`](pump_multi_hop.ts); `npx tsx examples/pump_multi_hop.ts --help`. [Four workflows and settlement](../docs/PUMPFUN_VERSIONS.md#official-multi-hop).
+
+`cached_trade` accepts optional `pump_route` JSON settings for Auto / Official / Sequential; see [execution selection](../docs/PUMPFUN_VERSIONS.md#execution-selection). It reports aggregate metadata when official execution is selected.
+
 ## Run
 
 ~~~bash

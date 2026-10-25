@@ -41,6 +41,9 @@ async function main() {
   ).prepare({
     dexType: v.dex_type,
     pumpfunVersion: v.pumpfun_version,
+    pumpRoute: v.pump_route ? {execution:v.pump_route.execution,
+      minimumOutputAmount:v.pump_route.minimum_output_amount === undefined ? undefined : snapshotU64(v.pump_route.minimum_output_amount,'pump_route.minimum_output_amount'),
+      buybackRecipient:v.pump_route.buyback_recipient ? new PublicKey(v.pump_route.buyback_recipient) : undefined} : undefined,
     tradeType: v.trade_type,
     snapshot,
     hints,
@@ -70,6 +73,7 @@ async function main() {
     ]);
   console.log(
     JSON.stringify({
+      execution: route.execution ?? "sequential",
       minimum_amount_out: String(route.minimumNetAmountOut),
       legs: route.legs.map((l) => ({
         amount_in: String(l.amountIn),
