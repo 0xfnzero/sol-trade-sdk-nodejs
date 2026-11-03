@@ -1,6 +1,6 @@
 {
   "name": "sol-trade-sdk",
-  "version": "10.0.0",
+  "version": "11.0.0",
   "description": "High-performance Solana trading SDK with multi-protocol support",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
